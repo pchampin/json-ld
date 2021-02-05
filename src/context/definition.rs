@@ -1,6 +1,7 @@
 use iref::{Iri, IriBuf};
 use langtag::LanguageTagBuf;
 use crate::{
+	json::Json,
 	Nullable,
 	Id,
 	Direction,
@@ -14,7 +15,7 @@ use super::Context;
 
 // A term definition.
 #[derive(Clone)]
-pub struct TermDefinition<T: Id, C: Context<T>> {
+pub struct TermDefinition<J, T: Id> {
 	// IRI mapping.
 	pub value: Option<Term<T>>,
 
@@ -31,7 +32,7 @@ pub struct TermDefinition<T: Id, C: Context<T>> {
 	pub base_url: Option<IriBuf>,
 
 	// Optional context.
-	pub context: Option<C::LocalContext>,
+	pub context: Option<J>,
 
 	// Container mapping.
 	pub container: Container,
@@ -52,14 +53,14 @@ pub struct TermDefinition<T: Id, C: Context<T>> {
 	pub typ: Option<Type<T>>
 }
 
-impl<T: Id, C: Context<T>> TermDefinition<T, C> {
+impl<J, T: Id> TermDefinition<J, T> {
 	pub fn base_url(&self) -> Option<Iri> {
 		self.base_url.as_ref().map(|iri| iri.as_iri())
 	}
 }
 
-impl<T: Id, C: Context<T>> Default for TermDefinition<T, C> {
-	fn default() -> TermDefinition<T, C> {
+impl<J, T: Id> Default for TermDefinition<J, T> {
+	fn default() -> TermDefinition<J, T> {
 		TermDefinition {
 			value: None,
 			prefix: false,
@@ -77,8 +78,8 @@ impl<T: Id, C: Context<T>> Default for TermDefinition<T, C> {
 	}
 }
 
-impl<T: Id, C: Context<T>> PartialEq for TermDefinition<T, C> {
-	fn eq(&self, other: &TermDefinition<T, C>) -> bool {
+impl<J: PartialEq, T: Id> PartialEq for TermDefinition<J, T> {
+	fn eq(&self, other: &TermDefinition<J, T>) -> bool {
 		// NOTE we ignore the `protected` flag.
 		self.prefix == other.prefix &&
 		self.reverse_property == other.reverse_property &&
@@ -94,4 +95,4 @@ impl<T: Id, C: Context<T>> PartialEq for TermDefinition<T, C> {
 	}
 }
 
-impl<T: Id, C: Context<T>> Eq for TermDefinition<T, C> {}
+impl<J: Eq, T: Id> Eq for TermDefinition<J, T> {}

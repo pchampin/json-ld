@@ -15,14 +15,13 @@ use langtag::{
 	LanguageTag,
 	LanguageTagBuf
 };
-use json::JsonValue;
 use crate::{
+	json::Json,
 	ProcessingMode,
 	Error,
 	Direction,
 	Id,
-	syntax::Term,
-	util
+	syntax::Term
 };
 
 pub use definition::*;
@@ -93,9 +92,9 @@ pub trait Context<T: Id = IriBuf> : Clone {
 	fn new(base_iri: Option<Iri>) -> Self;
 
 	/// Get the definition of a term.
-	fn get(&self, term: &str) -> Option<&TermDefinition<T, Self>>;
+	fn get(&self, term: &str) -> Option<&TermDefinition<Self::LocalContext, T>>;
 
-	fn get_opt(&self, term: Option<&str>) -> Option<&TermDefinition<T, Self>> {
+	fn get_opt(&self, term: Option<&str>) -> Option<&TermDefinition<Self::LocalContext, T>> {
 		if let Some(term) = term {
 			self.get(term)
 		} else {
@@ -126,13 +125,13 @@ pub trait Context<T: Id = IriBuf> : Clone {
 	/// Get the previous context.
 	fn previous_context(&self) -> Option<&Self>;
 
-	fn definitions<'a>(&'a self) -> Box<dyn 'a + Iterator<Item = (&'a String, &'a TermDefinition<T, Self>)>>;
+	fn definitions<'a>(&'a self) -> Box<dyn 'a + Iterator<Item = (&'a String, &'a TermDefinition<Self::LocalContext, T>)>>;
 }
 
 /// Mutable JSON-LD context.
 pub trait ContextMut<T: Id = IriBuf>: Context<T> {
 	/// Defines the given term.
-	fn set(&mut self, term: &str, definition: Option<TermDefinition<T, Self>>) -> Option<TermDefinition<T, Self>>;
+	fn set(&mut self, term: &str, definition: Option<TermDefinition<Self::LocalContext, T>>) -> Option<TermDefinition<Self::LocalContext, T>>;
 
 	/// Sets the base IRI of the context.
 	fn set_base_iri(&mut self, iri: Option<Iri>);
@@ -165,7 +164,7 @@ pub trait ContextMutProxy<T: Id = IriBuf> {
 ///
 /// Local contexts can be seen as "abstract contexts" that can be processed to enrich an
 /// existing active context.
-pub trait Local<T: Id = IriBuf>: Sized + PartialEq {
+pub trait Local<T: Id = IriBuf>: Json {
 	/// Process the local context with specific options.
 	fn process_full<'a, 's: 'a, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(&'s self, active_context: &'a C, stack: ProcessingStack, loader: &'a mut L, base_url: Option<Iri<'a>>, options: ProcessingOptions) -> BoxFuture<'a, Result<Processed<&'s Self, C>, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<Self>, L::Output: Into<Self>, T: Send + Sync;
 
@@ -230,17 +229,17 @@ impl<'a, L: Clone, C> Processed<&'a L, C> {
 	}
 }
 
-impl<L: util::AsJson, C> util::AsJson for Processed<L, C> {
-	fn as_json(&self) -> JsonValue {
-		self.local.as_json()
-	}
-}
+// impl<L: util::AsJson, C> util::AsJson for Processed<L, C> {
+// 	fn as_json(&self) -> &C::LocalContext {
+// 		&self.local
+// 	}
+// }
 
-impl<'a, C> util::AsJson for Processed<&'a JsonValue, C> {
-	fn as_json(&self) -> JsonValue {
-		self.local.clone()
-	}
-}
+// impl<'a, C> util::AsJson for Processed<&'a JsonValue, C> {
+// 	fn as_json(&self) -> JsonValue {
+// 		self.local.clone()
+// 	}
+// }
 
 impl<L, C> std::ops::Deref for Processed<L, C> {
 	type Target = C;
@@ -257,18 +256,18 @@ impl<L, C> std::convert::AsRef<C> for Processed<L, C> {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-pub struct JsonContext<T: Id = IriBuf> {
+pub struct JsonContext<J: Json, T: Id = IriBuf> {
 	original_base_url: Option<IriBuf>,
 	base_iri: Option<IriBuf>,
 	vocabulary: Option<Term<T>>,
 	default_language: Option<LanguageTagBuf>,
 	default_base_direction: Option<Direction>,
 	previous_context: Option<Box<Self>>,
-	definitions: HashMap<String, TermDefinition<T, Self>>
+	definitions: HashMap<String, TermDefinition<J, T>>
 }
 
-impl<T: Id> JsonContext<T> {
-	pub fn new(base_iri: Option<Iri>) -> JsonContext<T> {
+impl<J: Json, T: Id> JsonContext<J, T> {
+	pub fn new(base_iri: Option<Iri>) -> JsonContext<J, T> {
 		JsonContext {
 			original_base_url: base_iri.map(|iri| iri.into()),
 			base_iri: base_iri.map(|iri| iri.into()),
@@ -281,7 +280,7 @@ impl<T: Id> JsonContext<T> {
 	}
 }
 
-impl<T: Id> ContextMutProxy<T> for JsonContext<T> {
+impl<J: Json, T: Id> ContextMutProxy<T> for JsonContext<J, T> {
 	type Target = Self;
 
 	fn deref(&self) -> &Self {
@@ -289,8 +288,8 @@ impl<T: Id> ContextMutProxy<T> for JsonContext<T> {
 	}
 }
 
-impl<T: Id> Default for JsonContext<T> {
-	fn default() -> JsonContext<T> {
+impl<J: Json, T: Id> Default for JsonContext<J, T> {
+	fn default() -> JsonContext<J, T> {
 		JsonContext {
 			original_base_url: None,
 			base_iri: None,
@@ -303,14 +302,14 @@ impl<T: Id> Default for JsonContext<T> {
 	}
 }
 
-impl<T: Id> Context<T> for JsonContext<T> {
-	type LocalContext = JsonValue;
+impl<J: Json, T: Id> Context<T> for JsonContext<J, T> {
+	type LocalContext = J;
 
-	fn new(base_iri: Option<Iri>) -> JsonContext<T> {
+	fn new(base_iri: Option<Iri>) -> JsonContext<J, T> {
 		Self::new(base_iri)
 	}
 
-	fn get(&self, term: &str) -> Option<&TermDefinition<T, Self>> {
+	fn get(&self, term: &str) -> Option<&TermDefinition<J, T>> {
 		self.definitions.get(term)
 	}
 
@@ -353,13 +352,13 @@ impl<T: Id> Context<T> for JsonContext<T> {
 		}
 	}
 
-	fn definitions<'a>(&'a self) -> Box<dyn 'a + Iterator<Item = (&'a String, &'a TermDefinition<T, Self>)>> {
+	fn definitions<'a>(&'a self) -> Box<dyn 'a + Iterator<Item = (&'a String, &'a TermDefinition<J, T>)>> {
 		Box::new(self.definitions.iter())
 	}
 }
 
-impl<T: Id> ContextMut<T> for JsonContext<T> {
-	fn set(&mut self, term: &str, definition: Option<TermDefinition<T, Self>>) -> Option<TermDefinition<T, Self>> {
+impl<J: Json, T: Id> ContextMut<T> for JsonContext<J, T> {
+	fn set(&mut self, term: &str, definition: Option<TermDefinition<J, T>>) -> Option<TermDefinition<J, T>> {
 		match definition {
 			Some(def) => {
 				self.definitions.insert(term.to_string(), def)

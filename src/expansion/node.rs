@@ -3,8 +3,15 @@ use futures::future::{BoxFuture, FutureExt};
 use mown::Mown;
 use iref::Iri;
 use langtag::LanguageTagBuf;
-use json::JsonValue;
+use cc_traits::{
+	Len,
+	Iter
+};
 use crate::{
+	json::{
+		self,
+		Json
+	},
 	Error,
 	ErrorCode,
 	ProcessingMode,
@@ -41,7 +48,7 @@ pub fn node_id_of_term<T: Id>(term: Lenient<Term<T>>) -> Option<Lenient<Referenc
 	}
 }
 
-pub async fn expand_node<T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &C, type_scoped_context: &C, active_property: Option<&str>, expanded_entries: Vec<Entry<'_, (&str, Term<T>)>>, base_url: Option<Iri<'_>>, loader: &mut L, options: Options) -> Result<Option<Indexed<Node<T>>>, Error> where C::LocalContext: Send + Sync + From<L::Output> + From<JsonValue>, L::Output: Into<JsonValue> {
+pub async fn expand_node<J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &C, type_scoped_context: &C, active_property: Option<&str>, expanded_entries: Vec<Entry<'_, (&str, Term<T>), J>>, base_url: Option<Iri<'_>>, loader: &mut L, options: Options) -> Result<Option<Indexed<Node<T>>>, Error> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
 	// Initialize two empty maps, `result` and `nests`.
 	let mut result = Indexed::new(Node::new(), None);
 	let mut has_value_object_entries = false;
@@ -80,7 +87,7 @@ pub async fn expand_node<T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L:
 	Ok(Some(result))
 }
 
-fn expand_node_entries<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(result: &'a mut Indexed<Node<T>>, has_value_object_entries: &'a mut bool, active_context: &'a C, type_scoped_context: &'a C, active_property: Option<&'a str>, expanded_entries: Vec<Entry<'a, (&'a str, Term<T>)>>, base_url: Option<Iri<'a>>, loader: &'a mut L, options: Options) -> BoxFuture<'a, Result<(), Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<JsonValue>, L::Output: Into<JsonValue> {
+fn expand_node_entries<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(result: &'a mut Indexed<Node<T>>, has_value_object_entries: &'a mut bool, active_context: &'a C, type_scoped_context: &'a C, active_property: Option<&'a str>, expanded_entries: Vec<Entry<'a, (&'a str, Term<T>), J>>, base_url: Option<Iri<'a>>, loader: &'a mut L, options: Options) -> BoxFuture<'a, Result<(), Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
 	async move {
 		// For each `key` and `value` in `element`, ordered lexicographically by key
 		// if `ordered` is `true`:
@@ -208,7 +215,7 @@ fn expand_node_entries<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, 
 						Keyword::Reverse => {
 							// If value is not a map, an invalid @reverse value error
 							// has been detected and processing is aborted.
-							if let JsonValue::Object(value) = value {
+							if let json::ValueRef::Object(value) = value.as_ref() {
 								let mut reverse_entries = Vec::with_capacity(value.len());
 								for (reverse_key, reverse_value) in value.iter() {
 									reverse_entries.push(Entry(reverse_key, reverse_value));
@@ -219,6 +226,7 @@ fn expand_node_entries<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, 
 								}
 
 								for Entry(reverse_key, reverse_value) in reverse_entries {
+									let reverse_key = reverse_key.as_ref();
 									match expand_iri(active_context, reverse_key, false, true) {
 										Lenient::Ok(Term::Keyword(_)) => {
 											return Err(ErrorCode::InvalidReversePropertyMap.into())
@@ -258,7 +266,7 @@ fn expand_node_entries<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, 
 						// If expanded property is @nest
 						Keyword::Nest => {
 							for nested in as_array(value) {
-								if let JsonValue::Object(nested) = nested {
+								if let json::ValueRef::Object(nested) = nested.as_ref() {
 									let mut nested_entries = Vec::new();
 
 									for (nested_key, nested_value) in nested.iter() {
@@ -317,6 +325,7 @@ fn expand_node_entries<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, 
 					let mut expanded_value = if is_json {
 						Expanded::Object(Object::Value(Value::Json(value.clone())).into())
 					} else if value.is_object() && container_mapping.contains(ContainerType::Language) {
+						let value = value.as_object().unwrap();
 						// Otherwise, if container mapping includes @language and value is a map then
 						// value is expanded from a language map as follows:
 						// Initialize expanded value to an empty array.
@@ -336,7 +345,7 @@ fn expand_node_entries<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, 
 						// For each key-value pair language-language value in
 						// value, ordered lexicographically by language if ordered is true:
 						let mut language_entries = Vec::with_capacity(value.len());
-						for (language, language_value) in value.entries() {
+						for (language, language_value) in value.iter() {
 							language_entries.push(Entry(language, language_value));
 						}
 
@@ -345,19 +354,19 @@ fn expand_node_entries<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, 
 						}
 
 						for Entry(language, language_value) in language_entries {
+							let language = language.as_ref();
+
 							// If language value is not an array set language value to
 							// an array containing only language value.
 							let language_value = as_array(language_value);
 
 							// For each item in language value:
 							for item in language_value {
-								match item {
+								match item.as_ref() {
 									// If item is null, continue to the next entry in
 									// language value.
-									JsonValue::Null => (),
-									JsonValue::Short(_) | JsonValue::String(_) => {
-										let item = item.as_str().unwrap();
-
+									json::ValueRef::Null => (),
+									json::ValueRef::String(item) => {
 										// If language is @none, or expands to
 										// @none, remove @language from v.
 										let language = if expand_iri(active_context, language, false, true) == Term::Keyword(Keyword::None) {
@@ -396,6 +405,8 @@ fn expand_node_entries<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, 
 
 						Expanded::Array(expanded_value)
 					} else if value.is_object() && container_mapping.contains(ContainerType::Index) || container_mapping.contains(ContainerType::Type) || container_mapping.contains(ContainerType::Id) {
+						let value = value.as_object().unwrap();
+						
 						// Otherwise, if container mapping includes @index, @type, or @id and value
 						// is a map then value is expanded from a map as follows:
 
@@ -417,15 +428,15 @@ fn expand_node_entries<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, 
 						// For each key-value pair index-index value in value,
 						// ordered lexicographically by index if ordered is true:
 						let mut entries = Vec::with_capacity(value.len());
-						for (key, value) in value.entries() {
-							entries.push(Entry(key, value))
+						for (key, value) in value.iter() {
+							entries.push(Entry(key.as_ref(), value))
 						}
 
 						if options.ordered {
 							entries.sort();
 						}
 
-						for Entry(index, index_value) in &entries {
+						for Entry(index, index_value) in entries {
 							// If container mapping includes @id or @type,
 							// initialize `map_context` to the `previous_context`
 							// from `active_context` if it exists, otherwise, set
@@ -499,7 +510,8 @@ fn expand_node_entries<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, 
 										// of calling the Value Expansion algorithm,
 										// passing the active context, index key as
 										// active property, and index as value.
-										let re_expanded_index = expand_literal(active_context, Some(index_key), &JsonValue::String(index.to_string()))?;
+										let index_json_value: J = json::ValueRef::String(index).into();
+										let re_expanded_index = expand_literal(active_context, Some(index_key), &index_json_value)?;
 										// let re_expanded_index = if let Object::Value(Value::Literal(Literal::String { data, .. }, _), _) = re_expanded_index {
 										// 	data
 										// } else {

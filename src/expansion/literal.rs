@@ -1,6 +1,9 @@
 use langtag::LanguageTagBuf;
-use json::JsonValue;
 use crate::{
+	json::{
+		self,
+		Json
+	},
 	Error,
 	ErrorCode,
 	Direction,
@@ -31,7 +34,7 @@ fn clone_default_base_direction<T: Id, C: Context<T>>(active_context: &C) -> Opt
 }
 
 /// https://www.w3.org/TR/json-ld11-api/#value-expansion
-pub fn expand_literal<T: Id, C: Context<T>>(active_context: &C, active_property: Option<&str>, value: &JsonValue) -> Result<Indexed<Object<T>>, Error> {
+pub fn expand_literal<J: Json, T: Id, C: Context<T>>(active_context: &C, active_property: Option<&str>, value: &J) -> Result<Indexed<Object<T>>, Error> {
 	let active_property_definition = active_context.get_opt(active_property);
 
 	let active_property_type = if let Some(active_property_definition) = active_property_definition {
@@ -64,11 +67,11 @@ pub fn expand_literal<T: Id, C: Context<T>>(active_context: &C, active_property:
 		_ => {
 			// Otherwise, initialize `result` to a map with an `@value` entry whose value is set to
 			// `value`.
-			let result = match value {
-				JsonValue::Null => Literal::Null,
-				JsonValue::Boolean(b) => Literal::Boolean(*b),
-				JsonValue::Number(n) => Literal::Number(*n),
-				JsonValue::Short(_) | JsonValue::String(_) => Literal::String(value.as_str().unwrap().to_string()),
+			let result = match value.as_ref() {
+				json::ValueRef::Null => Literal::Null,
+				json::ValueRef::Boolean(b) => Literal::Boolean(b),
+				json::ValueRef::Number(n) => Literal::Number(n),
+				json::ValueRef::String(value) => Literal::String(value.to_string()),
 				_ => panic!("expand_literal must be called with a literal JSON value")
 			};
 

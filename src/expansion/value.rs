@@ -1,7 +1,10 @@
 use std::convert::TryFrom;
 use langtag::LanguageTagBuf;
-use json::JsonValue;
 use crate::{
+	json::{
+		self,
+		Json
+	},
 	Error,
 	ErrorCode,
 	Direction,
@@ -19,7 +22,7 @@ use crate::{
 };
 use super::{Entry, expand_iri};
 
-pub fn expand_value<'a, T: Id, C: ContextMut<T>>(input_type: Option<Lenient<Term<T>>>, type_scoped_context: &C, expanded_entries: Vec<Entry<(&str, Term<T>)>>, value_entry: &JsonValue) -> Result<Option<Indexed<Object<T>>>, Error> {
+pub fn expand_value<'a, J: Json, T: Id, C: ContextMut<T>>(input_type: Option<Lenient<Term<T>>>, type_scoped_context: &C, expanded_entries: Vec<Entry<(&str, Term<T>), J>>, value_entry: &J) -> Result<Option<Indexed<Object<T>>>, Error> {
 	let mut is_json = input_type == Some(Lenient::Ok(Term::Keyword(Keyword::Json)));
 	let mut ty = None;
 	let mut index = None;
@@ -114,18 +117,18 @@ pub fn expand_value<'a, T: Id, C: ContextMut<T>>(input_type: Option<Lenient<Term
 
 	// Otherwise, if value is not a scalar or null, an invalid value object value
 	// error has been detected and processing is aborted.
-	let result = match value_entry {
-		JsonValue::Null => {
+	let result = match value_entry.as_ref() {
+		json::ValueRef::Null => {
 			Literal::Null
 		},
-		JsonValue::Short(_) | JsonValue::String(_) => {
-			Literal::String(value_entry.as_str().unwrap().to_string())
+		json::ValueRef::String(value_entry) => {
+			Literal::String(value_entry.to_string())
 		},
-		JsonValue::Number(n) => {
-			Literal::Number(*n)
+		json::ValueRef::Number(n) => {
+			Literal::Number(n)
 		},
-		JsonValue::Boolean(b) => {
-			Literal::Boolean(*b)
+		json::ValueRef::Boolean(b) => {
+			Literal::Boolean(b)
 		},
 		_ => {
 			return Err(ErrorCode::InvalidValueObjectValue.into());

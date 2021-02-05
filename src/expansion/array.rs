@@ -1,6 +1,11 @@
+use cc_traits::{
+	Iter
+};
 use iref::Iri;
-use json::JsonValue;
 use crate::{
+	json::{
+		Json
+	},
 	Error,
 	Id,
 	object::*,
@@ -17,7 +22,7 @@ use super::{
 	expand_element
 };
 
-pub async fn expand_array<T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &C, active_property: Option<&str>, active_property_definition: Option<&TermDefinition<T, C>>, element: &[JsonValue], base_url: Option<Iri<'_>>, loader: &mut L, options: Options, from_map: bool) -> Result<Expanded<T>, Error> where C::LocalContext: Send + Sync + From<L::Output> + From<JsonValue>, L::Output: Into<JsonValue> {
+pub async fn expand_array<J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &C, active_property: Option<&str>, active_property_definition: Option<&TermDefinition<C::LocalContext, T>>, element: &J::Array, base_url: Option<Iri<'_>>, loader: &mut L, options: Options, from_map: bool) -> Result<Expanded<T>, Error> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
 	// Initialize an empty array, result.
 	let mut is_list = false;
 	let mut result = Vec::new();
@@ -30,7 +35,7 @@ pub async fn expand_array<T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L
 	}
 
 	// For each item in element:
-	for item in element {
+	for item in element.iter() {
 		// Initialize `expanded_item` to the result of using this algorithm
 		// recursively, passing `active_context`, `active_property`, `item` as element,
 		// `base_url`, the `frame_expansion`, `ordered`, and `from_map` flags.

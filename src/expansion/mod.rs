@@ -12,8 +12,8 @@ use std::cmp::{Ord, Ordering};
 use std::collections::HashSet;
 use futures::Future;
 use iref::{Iri, IriBuf};
-use json::JsonValue;
 use crate::{
+	json::Json,
 	ProcessingMode,
 	Error,
 	Id,
@@ -65,17 +65,24 @@ impl From<crate::compaction::Options> for Options {
 	}
 }
 
-#[derive(PartialEq, Eq)]
-pub struct Entry<'a, T>(T, &'a JsonValue);
+pub struct Entry<'a, T, J>(T, &'a J);
 
-impl<'a, T: PartialOrd> PartialOrd for Entry<'a, T> {
-	fn partial_cmp(&self, other: &Entry<'a, T>) -> Option<Ordering> {
+impl<'a, T: PartialEq, J> PartialEq for Entry<'a, T, J> {
+	fn eq(&self, other: &Entry<'a, T, J>) -> bool {
+		self.0.eq(&other.0)
+	}
+}
+
+impl<'a, T: PartialOrd, J> PartialOrd for Entry<'a, T, J> {
+	fn partial_cmp(&self, other: &Entry<'a, T, J>) -> Option<Ordering> {
 		self.0.partial_cmp(&other.0)
 	}
 }
 
-impl<'a, T: Ord> Ord for Entry<'a, T> {
-	fn cmp(&self, other: &Entry<'a, T>) -> Ordering {
+impl<'a, T: Eq, J> Eq for Entry<'a, T, J> {}
+
+impl<'a, T: Ord, J> Ord for Entry<'a, T, J> {
+	fn cmp(&self, other: &Entry<'a, T, J>) -> Ordering {
 		self.0.cmp(&other.0)
 	}
 }
@@ -88,7 +95,7 @@ fn filter_top_level_item<T: Id>(item: &Indexed<Object<T>>) -> bool {
 	}
 }
 
-pub fn expand<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &'a C, element: &'a JsonValue, base_url: Option<Iri>, loader: &'a mut L, options: Options) -> impl 'a + Send + Future<Output=Result<HashSet<Indexed<Object<T>>>, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<JsonValue>, L::Output: Into<JsonValue> {
+pub fn expand<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &'a C, element: &'a J, base_url: Option<Iri>, loader: &'a mut L, options: Options) -> impl 'a + Send + Future<Output=Result<HashSet<Indexed<Object<T>>>, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
 	let base_url = base_url.map(|url| IriBuf::from(url));
 
 	async move {

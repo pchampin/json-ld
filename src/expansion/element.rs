@@ -1,8 +1,16 @@
 use mown::Mown;
 use futures::future::{BoxFuture, FutureExt};
 use iref::Iri;
-use json::JsonValue;
+use cc_traits::{
+	Len,
+	Get,
+	Iter
+};
 use crate::{
+	json::{
+		self,
+		Json,
+	},
 	Error,
 	ErrorCode,
 	Id,
@@ -34,7 +42,7 @@ use super::{
 
 /// https://www.w3.org/TR/json-ld11-api/#expansion-algorithm
 /// The default specified value for `ordered` and `from_map` is `false`.
-pub fn expand_element<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &'a C, active_property: Option<&'a str>, element: &'a JsonValue, base_url: Option<Iri<'a>>, loader: &'a mut L, options: Options, from_map: bool) -> BoxFuture<'a, Result<Expanded<T>, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<JsonValue>, L::Output: Into<JsonValue> {
+pub fn expand_element<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &'a C, active_property: Option<&'a str>, element: &'a J, base_url: Option<Iri<'a>>, loader: &'a mut L, options: Options, from_map: bool) -> BoxFuture<'a, Result<Expanded<T>, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
 	async move {
 		// If `element` is null, return null.
 		if element.is_null() {
@@ -61,24 +69,23 @@ pub fn expand_element<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L
 			None
 		};
 
-		match element {
-			JsonValue::Null => unreachable!(),
-			JsonValue::Array(element) => {
+		match element.as_ref() {
+			json::ValueRef::Null => unreachable!(),
+			json::ValueRef::Array(element) => {
 				expand_array(active_context, active_property, active_property_definition, element, base_url, loader, options, from_map).await
 			},
-
-			JsonValue::Object(element) => {
+			json::ValueRef::Object(element) => {
 				// We will need to consider expanded keys, and maybe ordered keys.
-				let mut entries: Vec<Entry<&'a str>> = Vec::with_capacity(element.len());
+				let mut entries: Vec<Entry<&'a str, J>> = Vec::with_capacity(element.len());
 				for (key, value) in element.iter() {
-					entries.push(Entry(key, value));
+					entries.push(Entry(key.as_ref(), value));
 				}
 
 				if options.ordered {
 					entries.sort()
 				}
 
-				let mut value_entry: Option<&JsonValue> = None;
+				let mut value_entry: Option<&J> = None;
 				let mut id_entry = None;
 
 				for Entry(key, value) in entries.iter() {
@@ -198,7 +205,7 @@ pub fn expand_element<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L
 				let mut list_entry = None;
 				let mut set_entry = None;
 				value_entry = None;
-				for Entry(key, value) in entries.iter() {
+				for Entry(key, value) in entries {
 					match expand_iri(active_context.as_ref(), key, false, true) {
 						Lenient::Ok(expanded_key) => {
 							match &expanded_key {
@@ -214,7 +221,7 @@ pub fn expand_element<'a, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L
 								_ => ()
 							}
 
-							expanded_entries.push(Entry((*key, expanded_key), value))
+							expanded_entries.push(Entry((key, expanded_key), value))
 						},
 						Lenient::Unknown(_) => {
 							if options.strict {

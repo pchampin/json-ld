@@ -1,10 +1,11 @@
 #![feature(arbitrary_self_types)]
+#![feature(generic_associated_types)]
 
 #[macro_use]
 extern crate log;
-extern crate json;
 extern crate iref;
 
+mod json;
 mod mode;
 mod error;
 mod direction;
