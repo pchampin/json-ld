@@ -1,8 +1,12 @@
 use std::hash::{Hash, Hasher};
 use iref::IriBuf;
 use langtag::LanguageTag;
-use json::JsonValue;
 use crate::{
+	json::{
+		self,
+		Json,
+		AsJson
+	},
 	Id,
 	object,
 	LangString,
@@ -16,7 +20,7 @@ use crate::{
 
 /// Literal value.
 #[derive(Clone)]
-pub enum Literal {
+pub enum Literal<J: Json> {
 	/// The `null` value.
 	Null,
 
@@ -24,13 +28,13 @@ pub enum Literal {
 	Boolean(bool),
 
 	/// Number.
-	Number(json::number::Number),
+	Number(J::Number),
 
 	/// String.
 	String(String)
 }
 
-impl PartialEq for Literal {
+impl<J: Json> PartialEq for Literal<J> {
 	fn eq(&self, other: &Literal) -> bool {
 		use Literal::*;
 		match (self, other) {
@@ -45,9 +49,9 @@ impl PartialEq for Literal {
 	}
 }
 
-impl Eq for Literal {}
+impl<J: Json> Eq for Literal<J> {}
 
-impl Hash for Literal {
+impl<J: Json> Hash for Literal<J> {
 	fn hash<H: Hasher>(&self, h: &mut H) {
 		match self {
 			Literal::Null => (),
@@ -58,7 +62,7 @@ impl Hash for Literal {
 	}
 }
 
-impl Literal {
+impl<J: Json> Literal<J> {
 	pub fn as_str(&self) -> Option<&str> {
 		match self {
 			Literal::String(s) => Some(s.as_str()),
@@ -73,7 +77,7 @@ impl Literal {
 		}
 	}
 
-	pub fn as_number(&self) -> Option<json::number::Number> {
+	pub fn as_number(&self) -> Option<J::Number> {
 		match self {
 			Literal::Number(n) => Some(*n),
 			_ => None
@@ -85,18 +89,18 @@ impl Literal {
 ///
 /// Either a typed literal value, or an internationalized language string.
 #[derive(PartialEq, Eq, Clone)]
-pub enum Value<T: Id = IriBuf> {
+pub enum Value<J: Json, T: Id = IriBuf> {
 	/// A typed value.
-	Literal(Literal, Option<T>),
+	Literal(Literal<J>, Option<T>),
 
 	/// A language tagged string.
 	LangString(LangString),
 
 	/// A JSON literal value.
-	Json(JsonValue)
+	Json(J)
 }
 
-impl<T: Id> Value<T> {
+impl<J: Json, T: Id> Value<J, T> {
 	pub fn as_str(&self) -> Option<&str> {
 		match self {
 			Value::Literal(lit, _) => lit.as_str(),
@@ -112,7 +116,7 @@ impl<T: Id> Value<T> {
 		}
 	}
 
-	pub fn as_number(&self) -> Option<json::number::Number> {
+	pub fn as_number(&self) -> Option<J::Number> {
 		match self {
 			Value::Literal(lit, _) => lit.as_number(),
 			_ => None
@@ -151,13 +155,13 @@ impl<T: Id> Value<T> {
 	}
 }
 
-impl<T: Id> object::Any<T> for Value<T> {
-	fn as_ref(&self) -> object::Ref<T> {
+impl<J: Json, T: Id> object::Any<J, T> for Value<J, T> {
+	fn as_ref(&self) -> object::Ref<J, T> {
 		object::Ref::Value(self)
 	}
 }
 
-impl<T: Id> Hash for Value<T> {
+impl<J: Json, T: Id> Hash for Value<J, T> {
 	fn hash<H: Hasher>(&self, h: &mut H) {
 		match self {
 			Value::Literal(lit, ty) => {
@@ -170,21 +174,21 @@ impl<T: Id> Hash for Value<T> {
 	}
 }
 
-impl<T: Id> util::AsJson for Value<T> {
-	fn as_json(&self) -> JsonValue {
-		let mut obj = json::object::Object::new();
+impl<J: Json, T: Id> AsJson for Value<J, T> {
+	fn as_json<K: Json>(&self) -> K {
+		let mut obj = K::Object::new();
 
 		match self {
 			Value::Literal(lit, ty) => {
 				match lit {
 					Literal::Null => {
-						obj.insert(Keyword::Value.into(), JsonValue::Null)
+						obj.insert(Keyword::Value.into(), json::Value::Null.into())
 					},
 					Literal::Boolean(b) => {
 						obj.insert(Keyword::Value.into(), b.as_json())
 					},
 					Literal::Number(n) => {
-						obj.insert(Keyword::Value.into(), JsonValue::Number(n.clone()))
+						obj.insert(Keyword::Value.into(), json::Value::Number(n.clone()))
 					},
 					Literal::String(s) => {
 						obj.insert(Keyword::Value.into(), s.as_json())
@@ -212,6 +216,6 @@ impl<T: Id> util::AsJson for Value<T> {
 			}
 		}
 
-		JsonValue::Object(obj)
+		json::Value::Object(obj).into()
 	}
 }

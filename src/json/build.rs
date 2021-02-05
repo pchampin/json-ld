@@ -12,42 +12,42 @@ use cc_traits::{
 };
 use super::Json;
 
-pub trait AsJson {
-	fn as_json<J: Json>(&self) -> J;
+pub trait AsJson<J: Json> {
+	fn as_json(&self) -> J;
 }
 
-impl AsJson for bool {
-	fn as_json<J: Json>(&self) -> J {
+impl<J: Json> AsJson<J> for bool {
+	fn as_json(&self) -> J {
 		super::Value::Boolean(*self).into()
 	}
 }
 
-impl AsJson for str {
-	fn as_json<J: Json>(&self) -> J {
+impl<J: Json> AsJson<J> for str {
+	fn as_json(&self) -> J {
 		super::ValueRef::String(self).into()
 	}
 }
 
-impl AsJson for String {
-	fn as_json<J: Json>(&self) -> J {
+impl<J: Json> AsJson<J> for String {
+	fn as_json(&self) -> J {
 		super::ValueRef::String(self).into()
 	}
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> AsJson for LanguageTag<'a, T> {
-	fn as_json<J: Json>(&self) -> J {
+impl<'a, J: Json, T: AsRef<[u8]> + ?Sized> AsJson<J> for LanguageTag<'a, T> {
+	fn as_json(&self) -> J {
 		self.as_str().as_json()
 	}
 }
 
-impl<T: AsRef<[u8]>> AsJson for LanguageTagBuf<T> {
-	fn as_json<J: Json>(&self) -> J {
+impl<J: Json, T: AsRef<[u8]>> AsJson<J> for LanguageTagBuf<T> {
+	fn as_json(&self) -> J {
 		self.as_str().as_json()
 	}
 }
 
-impl<T: AsJson> AsJson for [T] {
-	fn as_json<J: Json>(&self) -> J {
+impl<J: Json, T: AsJson<J>> AsJson<J> for [T] {
+	fn as_json(&self) -> J {
 		let ary = J::Array::with_capacity(self.len());
 		for item in self {
 			ary.push_back(item.as_json());
@@ -57,14 +57,14 @@ impl<T: AsJson> AsJson for [T] {
 	}
 }
 
-impl<T: AsJson> AsJson for Vec<T> {
-	fn as_json<J: Json>(&self) -> J {
+impl<J: Json, T: AsJson<J>> AsJson<J> for Vec<T> {
+	fn as_json(&self) -> J {
 		self.as_slice().as_json()
 	}
 }
 
-impl<T: AsJson> AsJson for HashSet<T> {
-	fn as_json<J: Json>(&self) -> J {
+impl<J: Json, T: AsJson> AsJson<J> for HashSet<T> {
+	fn as_json(&self) -> J {
 		let ary = J::Array::with_capacity(self.len());
 		for item in self {
 			ary.push_back(item.as_json());

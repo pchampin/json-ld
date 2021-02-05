@@ -11,16 +11,17 @@ mod build;
 pub use build::AsJson;
 
 pub trait Json: Clone + PartialEq + From<Value<Self>> + for<'a> From<ValueRef<'a, Self>> + Sync + Send {
-	type Error;
-	type MetaData;
+	type MetaData: Clone;
 	
 	type Number: PartialEq;
-	type Key: Ord + AsRef<str> + for<'a> From<&'a str>;
 
 	type Array: Clone + cc_traits::VecMut<Self> + WithCapacity + for<'a> Iter<'a, Item=&'a Self>;
+
+	type Key: Ord + AsRef<str> + for<'a> From<&'a str>;
+	
 	type Object: Clone + Len + WithCapacity + MapMut<Self::Key, Self> + for<'a> Get<&'a str> + for<'a> Iter<'a, Item=(&'a Self::Key, &'a Self)>;
 
-	fn metadata(&self) -> Self::MetaData;
+	fn metadata(&self) -> &Self::MetaData;
 	
 	fn as_ref(&self) -> ValueRef<Self>;
 

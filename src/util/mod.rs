@@ -2,10 +2,6 @@
 
 use std::hash::{Hash, Hasher};
 use std::collections::{HashSet, HashMap, hash_map::DefaultHasher};
-use ::json::{JsonValue, number::Number};
-
-mod json;
-pub use self::json::*;
 
 pub fn as_array(json: &JsonValue) -> &[JsonValue] {
 	match json {
