@@ -1,7 +1,9 @@
 use std::convert::TryFrom;
 use std::fmt;
-use json::JsonValue;
-use crate::util::AsJson;
+use crate::json::{
+	Json,
+	AsJson
+};
 
 /// Internationalized string direction.
 ///
@@ -38,13 +40,13 @@ impl fmt::Display for Direction {
 	}
 }
 
-impl AsJson for Direction {
+impl<J: Json> AsJson<J> for Direction {
 	/// Convert the direction into a JSON string.
 	/// Either `"rtl"` or `"ltr"`.
-	fn as_json(&self) -> JsonValue {
+	fn as_json(&self) -> J {
 		match self {
-			Direction::Ltr => "ltr".into(),
-			Direction::Rtl => "rtl".into()
+			Direction::Ltr => "ltr".as_json(),
+			Direction::Rtl => "rtl".as_json()
 		}
 	}
 }

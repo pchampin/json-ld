@@ -1,10 +1,13 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::fs::File;
-use std::io::{Read, BufReader};
+use std::{
+	collections::HashMap,
+	path::{Path, PathBuf},
+	fs::File,
+	io::{Read, BufReader},
+	marker::PhantomData
+};
+use cc_traits::Get;
 use futures::future::{FutureExt, BoxFuture};
 use iref::{Iri, IriBuf};
-use json::JsonValue;
 use crate::{
 	Error,
 	ErrorCode,
@@ -12,28 +15,31 @@ use crate::{
 	context::{
 		self,
 		RemoteContext
+	},
+	json::{
+		self,
+		Json
 	}
 };
 
 /// Document loader.
 pub trait Loader {
-	/// The type of documents that can be loaded.
-	type Document;
+	type Output;
 
 	/// Load the document behind the given URL.
-	fn load<'a>(&'a mut self, url: Iri<'_>) -> BoxFuture<'a, Result<RemoteDocument<Self::Document>, Error>>;
+	fn load<'a>(&'a mut self, url: Iri<'_>) -> BoxFuture<'a, Result<RemoteDocument<Self::Output>, Error>>;
 }
 
-impl<L: Send + Sync + Loader<Document = JsonValue>> context::Loader for L {
-	type Output = JsonValue;
+impl<L: Send + Sync + Loader> context::Loader for L where L::Output: Json {
+	type Output = L::Output;
 
-	fn load_context<'a>(&'a mut self, url: Iri) -> BoxFuture<'a, Result<RemoteContext<JsonValue>, Error>> {
+	fn load_context<'a>(&'a mut self, url: Iri) -> BoxFuture<'a, Result<RemoteContext<Self::Output>, Error>> {
 		let url = IriBuf::from(url);
 		async move {
 			match self.load(url.as_iri()).await {
 				Ok(remote_doc) => {
 					let (doc, url) = remote_doc.into_parts();
-					if let JsonValue::Object(obj) = doc {
+					if let json::ValueRef::Object(obj) = doc.as_ref() {
 						if let Some(context) = obj.get("@context") {
 							Ok(RemoteContext::from_parts(url, context.clone()))
 						} else {
@@ -57,12 +63,12 @@ impl<L: Send + Sync + Loader<Document = JsonValue>> context::Loader for L {
 /// Can be useful when you know that you will never need to load remote ressources.
 ///
 /// Raises an `LoadingDocumentFailed` at every attempt to load a ressource.
-pub struct NoLoader;
+pub struct NoLoader<T>(PhantomData<T>);
 
-impl Loader for NoLoader {
-	type Document = JsonValue;
+impl<T> Loader for NoLoader<T> {
+	type Output = T;
 
-	fn load<'a>(&'a mut self, _url: Iri<'_>) -> BoxFuture<'a, Result<RemoteDocument<Self::Document>, Error>> {
+	fn load<'a>(&'a mut self, _url: Iri<'_>) -> BoxFuture<'a, Result<RemoteDocument<T>, Error>> {
 		async move {
 			Err(ErrorCode::LoadingDocumentFailed.into())
 		}.boxed()
@@ -73,13 +79,13 @@ impl Loader for NoLoader {
 ///
 /// This is a special JSON-LD document loader that can load document from the file system by
 /// attaching a directory to specific URLs.
-pub struct FsLoader {
-	cache: HashMap<IriBuf, RemoteDocument>,
+pub struct FsLoader<T> {
+	cache: HashMap<IriBuf, RemoteDocument<T>>,
 	mount_points: HashMap<PathBuf, IriBuf>
 }
 
-impl FsLoader {
-	pub fn new() -> FsLoader {
+impl<T> FsLoader<T> {
+	pub fn new() -> FsLoader<T> {
 		FsLoader {
 			cache: HashMap::new(),
 			mount_points: HashMap::new()
@@ -91,10 +97,10 @@ impl FsLoader {
 	}
 }
 
-impl Loader for FsLoader {
-	type Document = JsonValue;
+impl<T: std::str::FromStr + Clone + Send> Loader for FsLoader<T> {
+	type Output = T;
 
-	fn load<'a>(&'a mut self, url: Iri<'_>) -> BoxFuture<'a, Result<RemoteDocument<Self::Document>, Error>> {
+	fn load<'a>(&'a mut self, url: Iri<'_>) -> BoxFuture<'a, Result<RemoteDocument<T>, Error>> {
 		let url: IriBuf = url.into();
 		async move {
 			match self.cache.get(&url) {
@@ -113,8 +119,8 @@ impl Loader for FsLoader {
 								    let mut buf_reader = BufReader::new(file);
 								    let mut contents = String::new();
 								    if buf_reader.read_to_string(&mut contents).is_ok() {
-										if let Ok(doc) = json::parse(contents.as_str()) {
-											let remote_doc = RemoteDocument::new(doc, url.as_iri());
+										if let Ok(doc) = contents.as_str().parse() {
+											let remote_doc: RemoteDocument<T> = RemoteDocument::new(doc, url.as_iri());
 											self.cache.insert(url.clone(), remote_doc.clone());
 											return Ok(remote_doc)
 										} else {

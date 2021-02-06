@@ -1,7 +1,10 @@
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
-use std::convert::TryFrom;
-use std::borrow::Borrow;
+use std::{
+	collections::{HashMap, HashSet},
+	hash::{Hash, Hasher},
+	convert::TryFrom,
+	borrow::Borrow
+};
+use cc_traits::MapInsert;
 use iref::{Iri, IriBuf};
 use crate::{
 	json::{
@@ -345,35 +348,35 @@ impl<J: Json, T: Id> Hash for Node<J, T> {
 
 impl<J: Json, T: Id> AsJson<J> for Node<J, T> {
 	fn as_json(&self) -> J {
-		let mut obj = J::Object::new();
+		let mut obj = J::Object::default();
 
 		if let Some(id) = &self.id {
-			obj.insert(Keyword::Id.into(), id.as_json());
+			obj.insert(Keyword::Id.into_str().into(), id.as_json());
 		}
 
 		if !self.types.is_empty() {
-			obj.insert(Keyword::Type.into(), self.types.as_json())
+			obj.insert(Keyword::Type.into_str().into(), self.types.as_json());
 		}
 
 		if let Some(graph) = &self.graph {
-			obj.insert(Keyword::Graph.into(), graph.as_json())
+			obj.insert(Keyword::Graph.into_str().into(), graph.as_json());
 		}
 
 		if let Some(included) = &self.included {
-			obj.insert(Keyword::Included.into(), included.as_json())
+			obj.insert(Keyword::Included.into_str().into(), included.as_json());
 		}
 
 		if !self.reverse_properties.is_empty() {
-			let mut reverse = J::Object::new();
+			let mut reverse = J::Object::default();
 			for (key, value) in &self.reverse_properties {
-				reverse.insert(key.as_str(), value.as_json())
+				reverse.insert(key.as_str().into(), value.as_json());
 			}
 
-			obj.insert(Keyword::Reverse.into(), json::Value::Object(reverse).into())
+			obj.insert(Keyword::Reverse.into_str().into(), json::Value::Object(reverse).into());
 		}
 
 		for (key, value) in &self.properties {
-			obj.insert(key.as_str(), value.as_json())
+			obj.insert(key.as_str().into(), value.as_json());
 		}
 
 		json::Value::Object(obj).into()

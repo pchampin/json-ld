@@ -3,7 +3,7 @@ use std::future::Future;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::sync::Arc;
-use futures::future::{BoxFuture, FutureExt};
+use futures::future::{LocalBoxFuture, FutureExt};
 use langtag::LanguageTagBuf;
 use iref::{Iri, IriBuf, IriRef};
 use cc_traits::{
@@ -50,10 +50,10 @@ use super::{
 
 impl<J: Json, T: Id> Local<T> for J {
 	/// Load a local context.
-	fn process_full<'a, 's: 'a, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(&'s self, active_context: &'a C, stack: ProcessingStack, loader: &'a mut L, base_url: Option<Iri<'a>>, options: ProcessingOptions) -> BoxFuture<'a, Result<Processed<&'s Self, C>, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<Self>, L::Output: Into<Self>, T: Send + Sync {
+	fn process_full<'a, 's: 'a, C: ContextMut<T>, L: Loader>(&'s self, active_context: &'a C, stack: ProcessingStack, loader: &'a mut L, base_url: Option<Iri<'a>>, options: ProcessingOptions) -> LocalBoxFuture<'a, Result<Processed<&'s Self, C>, Error>> where C::LocalContext: From<L::Output> + From<Self>, L::Output: Into<Self> {
 		async move {
 			Ok(Processed::new(self, process_context(active_context, self, stack, loader, base_url, options).await?))
-		}.boxed()
+		}.boxed_local()
 	}
 }
 
@@ -162,7 +162,7 @@ impl ProcessingStack {
 //
 // The recommended default value for `remote_contexts` is the empty set,
 // `false` for `override_protected`, and `true` for `propagate`.
-fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &'a C, local_context: &'a J, mut remote_contexts: ProcessingStack, loader: &'a mut L, base_url: Option<Iri>, mut options: ProcessingOptions) -> BoxFuture<'a, Result<C, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
+fn process_context<'a, J: Json, T: Id, C: ContextMut<T>, L: Loader>(active_context: &'a C, local_context: &'a J, mut remote_contexts: ProcessingStack, loader: &'a mut L, base_url: Option<Iri>, mut options: ProcessingOptions) -> LocalBoxFuture<'a, Result<C, Error>> where C::LocalContext: From<L::Output> + From<J>, L::Output: Into<J> {
 	let base_url = match base_url {
 		Some(base_url) => Some(IriBuf::from(base_url)),
 		None => None
@@ -180,7 +180,7 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 		// 2) If `local_context` is an object containing the member @propagate,
 		// its value MUST be boolean true or false, set `propagate` to that value.
 		if let json::ValueRef::Object(obj) = local_context.as_ref() {
-			if let Some(propagate_value) = obj.get(Keyword::Propagate.into()) {
+			if let Some(propagate_value) = obj.get(Keyword::Propagate.into_str()) {
 				if options.processing_mode == ProcessingMode::JsonLd1_0 {
 					return Err(ErrorCode::InvalidContextEntry.into())
 				}
@@ -204,7 +204,7 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 
 		// 5) For each item context in local context:
 		for context in local_context.as_ref() {
-			match context {
+			match context.as_ref() {
 				// 5.1) If context is null:
 				json::ValueRef::Null => {
 					// If `override_protected` is false and `active_context` contains any protected term
@@ -284,10 +284,10 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 				// 5.4) Context definition.
 				json::ValueRef::Object(context) => {
 					// 5.5) If context has an @version entry:
-					if let Some(version_value) = context.get(Keyword::Version.into()) {
+					if let Some(version_value) = context.get(Keyword::Version.into_str()) {
 						// 5.5.1) If the associated value is not 1.1, an invalid @version value has
 						// been detected.
-						if version_value.as_str() != Some("1.1") && version_value.as_f32() != Some(1.1) {
+						if version_value.as_str() != Some("1.1") {
 							return Err(ErrorCode::InvalidVersionValue.into())
 						}
 
@@ -299,7 +299,7 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 					}
 
 					// 5.6) If context has an @import entry:
-					let context = if let Some(import_value) = context.get(Keyword::Import.into()) {
+					let context: JsonObjectRef<J> = if let Some(import_value) = context.get(Keyword::Import.into_str()) {
 						// 5.6.1) If processing mode is json-ld-1.0, an invalid context entry error
 						// has been detected.
 						if options.processing_mode == ProcessingMode::JsonLd1_0 {
@@ -327,7 +327,7 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 							if let json::ValueRef::Object(import_context) = import_context.as_ref() {
 								// If `import_context` has a @import entry, an invalid context entry
 								// error has been detected and processing is aborted.
-								if let Some(_) = import_context.get(Keyword::Import.into()) {
+								if let Some(_) = import_context.get(Keyword::Import.into_str()) {
 									return Err(ErrorCode::InvalidContextEntry.into());
 								}
 
@@ -337,7 +337,7 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 								let mut context = context.clone();
 								for (key, value) in import_context.iter() {
 									if context.get(key).is_none() {
-										context.insert(key, value.clone());
+										context.insert(key.clone(), value.clone());
 									}
 								}
 
@@ -358,7 +358,7 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 					// the currently being processed context is not a remote context:
 					if remote_contexts.is_empty() {
 						// Initialize value to the value associated with the @base entry.
-						if let Some(value) = context.get(Keyword::Base.into()) {
+						if let Some(value) = context.get(Keyword::Base.into_str()) {
 							match value.as_ref() {
 								json::ValueRef::Null => {
 									// If value is null, remove the base IRI of result.
@@ -388,8 +388,8 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 
 					// 5.8) If context has a @vocab entry:
 					// Initialize value to the value associated with the @vocab entry.
-					if let Some(value) = context.get(Keyword::Vocab.into()) {
-						match value {
+					if let Some(value) = context.get(Keyword::Vocab.into_str()) {
+						match value.as_ref() {
 							json::ValueRef::Null => {
 								// If value is null, remove any vocabulary mapping from result.
 								result.set_vocabulary(None);
@@ -414,7 +414,7 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 					}
 
 					// 5.9) If context has a @language entry:
-					if let Some(value) = context.get(Keyword::Language.into()) {
+					if let Some(value) = context.get(Keyword::Language.into_str()) {
 						if value.is_null() {
 							// 5.9.2) If value is null, remove any default language from result.
 							result.set_default_language(None);
@@ -431,7 +431,7 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 					}
 
 					// 5.10) If context has a @direction entry:
-					if let Some(value) = context.get(Keyword::Direction.into()) {
+					if let Some(value) = context.get(Keyword::Direction.into_str()) {
 						// 5.10.1) If processing mode is json-ld-1.0, an invalid context entry error
 						// has been detected and processing is aborted.
 						if options.processing_mode == ProcessingMode::JsonLd1_0 {
@@ -457,7 +457,7 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 					// has already been defined or is currently being defined during recursion.
 					let mut defined = HashMap::new();
 
-					let protected = if let Some(json::ValueRef::Boolean(protected)) = context.get(Keyword::Protected.into()).as_ref() {
+					let protected = if let Some(json::ValueRef::Boolean(protected)) = context.get(Keyword::Protected.into_str()).map(J::as_ref) {
 						protected
 					} else {
 						false
@@ -471,6 +471,7 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 					// and the value of the @protected entry from context, if any, for protected.
 					// (and the value of override protected)
 					for (key, _) in context.iter() {
+						let key = key.as_ref();
 						match key {
 							"@base" | "@direction" | "@import" | "@language" | "@propagate" | "@protected" | "@version" | "@vocab" => (),
 							_ => {
@@ -485,7 +486,7 @@ fn process_context<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut
 		}
 
 		Ok(result)
-	}.boxed()
+	}.boxed_local()
 }
 
 enum JsonObjectRef<'a, J: Json> {
@@ -555,7 +556,7 @@ fn contains_between_boundaries(id: &str, c: char) -> bool {
 
 /// Follows the `https://www.w3.org/TR/json-ld11-api/#create-term-definition` algorithm.
 /// Default value for `base_url` is `None`. Default values for `protected` and `override_protected` are `false`.
-pub fn define<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &'a mut C, local_context: &'a J, term: &'a str, defined: &'a mut HashMap<String, bool>, remote_contexts: ProcessingStack, loader: &'a mut L, base_url: Option<Iri<'a>>, protected: bool, options: ProcessingOptions) -> BoxFuture<'a, Result<(), Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
+pub fn define<'a, J: Json, T: Id, C: ContextMut<T>, L: Loader>(active_context: &'a mut C, local_context: &'a J::Object, term: &'a str, defined: &'a mut HashMap<String, bool>, remote_contexts: ProcessingStack, loader: &'a mut L, base_url: Option<Iri<'a>>, protected: bool, options: ProcessingOptions) -> LocalBoxFuture<'a, Result<(), Error>> where C::LocalContext: From<L::Output> + From<J>, L::Output: Into<J> {
 	// let term = term.to_string();
 	// let base_url = if let Some(base_url) = base_url {
 	// 	Some(IriBuf::from(base_url))
@@ -1058,7 +1059,7 @@ pub fn define<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, 
 						}
 
 						// Set the local context of definition to context, and base URL to base URL.
-						definition.context = Some(context.clone().into());
+						definition.context = Some(C::LocalContext::from(context.clone()));
 						definition.base_url = base_url.as_ref().map(|url| url.into());
 					}
 
@@ -1199,11 +1200,11 @@ pub fn define<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, 
 				Ok(())
 			}
 		}
-	}.boxed()
+	}.boxed_local()
 }
 
 /// Default values for `document_relative` and `vocab` should be `false` and `true`.
-pub fn expand_iri<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &'a mut C, value: &str, document_relative: bool, vocab: bool, local_context: &'a J, defined: &'a mut HashMap<String, bool>, remote_contexts: ProcessingStack, loader: &'a mut L, options: ProcessingOptions) -> impl 'a + Future<Output = Result<Lenient<Term<T>>, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
+pub fn expand_iri<'a, J: Json, T: Id, C: ContextMut<T>, L: Loader>(active_context: &'a mut C, value: &str, document_relative: bool, vocab: bool, local_context: &'a J::Object, defined: &'a mut HashMap<String, bool>, remote_contexts: ProcessingStack, loader: &'a mut L, options: ProcessingOptions) -> impl 'a + Future<Output = Result<Lenient<Term<T>>, Error>> where C::LocalContext: From<L::Output> + From<J>, L::Output: Into<J> {
 	let value = value.to_string();
 	async move {
 		if let Ok(keyword) = Keyword::try_from(value.as_ref()) {

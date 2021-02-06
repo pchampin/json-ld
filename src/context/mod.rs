@@ -8,7 +8,7 @@ pub mod inverse;
 use std::collections::HashMap;
 use futures::{
 	FutureExt,
-	future::BoxFuture
+	future::LocalBoxFuture
 };
 use iref::{Iri, IriBuf};
 use langtag::{
@@ -166,20 +166,20 @@ pub trait ContextMutProxy<T: Id = IriBuf> {
 /// existing active context.
 pub trait Local<T: Id = IriBuf>: Json {
 	/// Process the local context with specific options.
-	fn process_full<'a, 's: 'a, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(&'s self, active_context: &'a C, stack: ProcessingStack, loader: &'a mut L, base_url: Option<Iri<'a>>, options: ProcessingOptions) -> BoxFuture<'a, Result<Processed<&'s Self, C>, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<Self>, L::Output: Into<Self>, T: Send + Sync;
+	fn process_full<'a, 's: 'a, C: ContextMut<T>, L: Loader>(&'s self, active_context: &'a C, stack: ProcessingStack, loader: &'a mut L, base_url: Option<Iri<'a>>, options: ProcessingOptions) -> LocalBoxFuture<'a, Result<Processed<&'s Self, C>, Error>> where C::LocalContext: From<L::Output> + From<Self>, L::Output: Into<Self>;
 
 	/// Process the local context with specific options.
-	fn process_with<'a, 's: 'a, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(&'s self, active_context: &'a C, loader: &'a mut L, base_url: Option<Iri<'a>>, options: ProcessingOptions) -> BoxFuture<'a, Result<Processed<&'s Self, C>, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<Self>, L::Output: Into<Self>, T: Send + Sync {
+	fn process_with<'a, 's: 'a, C: ContextMut<T>, L: Loader>(&'s self, active_context: &'a C, loader: &'a mut L, base_url: Option<Iri<'a>>, options: ProcessingOptions) -> LocalBoxFuture<'a, Result<Processed<&'s Self, C>, Error>> where C::LocalContext: From<L::Output> + From<Self>, L::Output: Into<Self> {
 		self.process_full(active_context, ProcessingStack::new(), loader, base_url, options)
 	}
 
 	/// Process the local context with the given active context with the default options:
 	/// `is_remote` is `false`, `override_protected` is `false` and `propagate` is `true`.
-	fn process<'a, 's: 'a, C: Send + Sync + ContextMut<T> + Default, L: Send + Sync + Loader>(&'s self, loader: &'a mut L, base_url: Option<Iri<'a>>) -> BoxFuture<'a, Result<Processed<&'s Self, C>, Error>> where Self: Sync, C::LocalContext: Send + Sync + From<L::Output> + From<Self>, L::Output: Into<Self>, T: Send + Sync {
+	fn process<'a, 's: 'a, C: ContextMut<T> + Default, L: Loader>(&'s self, loader: &'a mut L, base_url: Option<Iri<'a>>) -> LocalBoxFuture<'a, Result<Processed<&'s Self, C>, Error>> where Self: Sync, C::LocalContext: From<L::Output> + From<Self>, L::Output: Into<Self> {
 		async move {
 			let active_context = C::default();
 			self.process_full(&active_context, ProcessingStack::new(), loader, base_url, ProcessingOptions::default()).await
-		}.boxed()
+		}.boxed_local()
 	}
 }
 

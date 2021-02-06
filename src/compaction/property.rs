@@ -1,4 +1,12 @@
-use json::JsonValue;
+use cc_traits::{
+	Len,
+	Get,
+	GetMut,
+	PushBack,
+	MapInsert,
+	Remove,
+	PopFront
+};
 use crate::{
 	Id,
 	ContextMut,
@@ -18,6 +26,10 @@ use crate::{
 		Container,
 		ContainerType,
 		Term
+	},
+	json::{
+		self,
+		Json
 	}
 };
 use super::{
@@ -31,14 +43,16 @@ use super::{
 	value_value
 };
 
-async fn compact_property_list<T: Sync + Send + Id, C: ContextMut<T>, L: Loader>(list: &[Indexed<Object<T>>], expanded_index: Option<&str>, nest_result: &mut json::object::Object, container: Container, as_array: bool, item_active_property: &str, active_context: Inversible<T, &C>, loader: &mut L, options: Options) -> Result<(), Error> where C: Sync + Send, C::LocalContext: Send + Sync + From<L::Output>, L: Sync + Send {
+async fn compact_property_list<J: Json, T: Id, C: ContextMut<T>, L: Loader>(list: &[Indexed<Object<J, T>>], expanded_index: Option<&str>, nest_result: &mut J::Object, container: Container, as_array: bool, item_active_property: &str, active_context: Inversible<T, &C>, loader: &mut L, options: Options) -> Result<(), Error> where C::LocalContext: From<L::Output> {
 	// If expanded item is a list object:
-	let mut compacted_item = compact_collection_with(list.iter(), active_context.clone(), active_context.clone(), Some(item_active_property), loader, options).await?;
+	let mut compacted_item: J = compact_collection_with(list.iter(), active_context.clone(), active_context.clone(), Some(item_active_property), loader, options).await?;
 
 	// If compacted item is not an array,
 	// then set `compacted_item` to an array containing only `compacted_item`.
 	if !compacted_item.is_array() {
-		compacted_item = JsonValue::Array(vec![compacted_item])
+		let mut array = J::Array::default();
+		array.push_back(compacted_item);
+		compacted_item = json::Value::Array(array).into()
 	}
 
 	// If container does not include @list:
@@ -47,18 +61,20 @@ async fn compact_property_list<T: Sync + Send + Id, C: ContextMut<T>, L: Loader>
 		// a map containing an entry where the key is the result of
 		// IRI compacting @list and the value is the original
 		// compacted item.
-		let key = compact_iri(active_context.clone(), Keyword::List, true, false, options)?;
-		let mut list_object = json::object::Object::new();
-		list_object.insert(key.as_str().unwrap(), compacted_item);
-		compacted_item = JsonValue::Object(list_object);
+		let key: J = compact_iri(active_context.clone(), Keyword::List, true, false, options)?;
+		let mut list_object = J::Object::default();
+		list_object.insert(key.as_str().unwrap().into(), compacted_item);
+		compacted_item = json::Value::Object(list_object).into();
 
 		// If `expanded_item` contains the entry @index-value,
 		// then add an entry to compacted item where the key is
 		// the result of IRI compacting @index and value is value.
 		if let Some(index) = expanded_index {
-			let key = compact_iri(active_context.clone(), Keyword::Index, true, false, options)?;
-			match compacted_item {
-				JsonValue::Object(ref mut obj) => obj.insert(key.as_str().unwrap(), index.into()),
+			let key: J = compact_iri(active_context.clone(), Keyword::Index, true, false, options)?;
+			match compacted_item.as_mut() {
+				json::ValueMut::Object(obj) => {
+					obj.insert(key.as_str().unwrap().into(), json::ValueRef::String(index).into());
+				},
 				_ => unreachable!()
 			}
 		}
@@ -68,13 +84,13 @@ async fn compact_property_list<T: Sync + Send + Id, C: ContextMut<T>, L: Loader>
 		add_value(nest_result, item_active_property, compacted_item, as_array)
 	} else {
 		// Otherwise, set the value of the item active property entry in nest result to compacted item.
-		nest_result.insert(item_active_property, compacted_item)
+		nest_result.insert(item_active_property.into(), compacted_item);
 	}
 
 	Ok(())
 }
 
-async fn compact_property_graph<T: Sync + Send + Id, C: ContextMut<T>, L: Loader>(node: &Node<T>, expanded_index: Option<&str>, nest_result: &mut json::object::Object, container: Container, as_array: bool, item_active_property: &str, active_context: Inversible<T, &C>, loader: &mut L, options: Options) -> Result<(), Error> where C: Sync + Send, C::LocalContext: Send + Sync + From<L::Output>, L: Sync + Send {
+async fn compact_property_graph<J: Json, T: Id, C: ContextMut<T>, L: Loader>(node: &Node<J, T>, expanded_index: Option<&str>, nest_result: &mut J::Object, container: Container, as_array: bool, item_active_property: &str, active_context: Inversible<T, &C>, loader: &mut L, options: Options) -> Result<(), Error> where C::LocalContext: From<L::Output> {
 	// If expanded item is a graph object
 	let mut compacted_item = node.graph.as_ref().unwrap().compact_with(active_context.clone(), active_context.clone(), Some(item_active_property), loader, options).await?;
 
@@ -84,11 +100,11 @@ async fn compact_property_graph<T: Sync + Send + Id, C: ContextMut<T>, L: Loader
 		// in `nest_result`, initializing it to a new empty map,
 		// if necessary.
 		if !nest_result.get(item_active_property).is_some() {
-			nest_result.insert(item_active_property, JsonValue::new_object())
+			nest_result.insert(item_active_property.into(), json::Value::Object(J::Object::default()).into());
 		}
 
-		let map_object = match nest_result.get_mut(item_active_property) {
-			Some(JsonValue::Object(map)) => map,
+		let map_object = match nest_result.get_mut(item_active_property).map(J::as_mut) {
+			Some(json::ValueMut::Object(map)) => map,
 			_ => unreachable!()
 		};
 
@@ -101,21 +117,21 @@ async fn compact_property_graph<T: Sync + Send + Id, C: ContextMut<T>, L: Loader
 			None => (Lenient::Ok(Term::Keyword(Keyword::None)), true)
 		};
 
-		let map_key = compact_iri(active_context, &id_value, vocab, false, options)?;
+		let map_key: J = compact_iri(active_context, &id_value, vocab, false, options)?;
 
 		// Use `add_value` to add `compacted_item` to
 		// the `map_key` entry in `map_object` using `as_array`.
-		add_value(map_object, map_key.as_str().unwrap(), compacted_item, as_array)
+		add_value(map_object, map_key.as_str().unwrap().into(), compacted_item, as_array)
 	} else if container.contains(ContainerType::Graph) && container.contains(ContainerType::Index) && node.is_simple_graph() {
 		// Initialize `map_object` to the value of `item_active_property`
 		// in `nest_result`, initializing it to a new empty map,
 		// if necessary.
 		if !nest_result.get(item_active_property).is_some() {
-			nest_result.insert(item_active_property, JsonValue::new_object())
+			nest_result.insert(item_active_property.into(), json::Value::Object(J::Object::default()).into());
 		}
 
-		let map_object = match nest_result.get_mut(item_active_property) {
-			Some(JsonValue::Object(map)) => map,
+		let map_object = match nest_result.get_mut(item_active_property).map(J::as_mut) {
+			Some(json::ValueMut::Object(map)) => map,
 			_ => unreachable!()
 		};
 
@@ -140,14 +156,14 @@ async fn compact_property_graph<T: Sync + Send + Id, C: ContextMut<T>, L: Loader
 		// Set `compacted_item` to a new map,
 		// containing the key from IRI compacting @included and
 		// the original `compacted_item` as the value.
-		compacted_item = match compacted_item {
-			JsonValue::Array(items) if items.len() > 1 => {
-				let key = compact_iri(active_context, Keyword::Included, true, false, options)?;
-				let mut map = json::object::Object::new();
-				map.insert(key.as_str().unwrap(), JsonValue::Array(items));
-				JsonValue::Object(map)
+		compacted_item = match compacted_item.into() {
+			json::Value::Array(items) if items.len() > 1 => {
+				let key: J = compact_iri(active_context, Keyword::Included, true, false, options)?;
+				let mut map = J::Object::default();
+				map.insert(key.as_str().unwrap().into(), json::Value::Array(items).into());
+				json::Value::Object(map).into()
 			},
-			item => item
+			item => item.into()
 		};
 
 		// Use `add_value` to add `compacted_item` to the
@@ -159,9 +175,9 @@ async fn compact_property_graph<T: Sync + Send + Id, C: ContextMut<T>, L: Loader
 
 		// Set `compacted_item` to a new map containing the key from
 		// IRI compacting @graph using the original `compacted_item` as a value.
-		let key = compact_iri(active_context.clone(), Keyword::Graph, true, false, options)?;
-		let mut map = json::object::Object::new();
-		map.insert(key.as_str().unwrap(), compacted_item);
+		let key: J = compact_iri(active_context.clone(), Keyword::Graph, true, false, options)?;
+		let mut map = J::Object::default();
+		map.insert(key.as_str().unwrap().into(), compacted_item);
 
 		// If `expanded_item` contains an @id entry,
 		// add an entry in `compacted_item` using the key from
@@ -169,29 +185,29 @@ async fn compact_property_graph<T: Sync + Send + Id, C: ContextMut<T>, L: Loader
 		// IRI compacting the value of @id in `expanded_item` using
 		// false for vocab.
 		if let Some(id) = node.id() {
-			let key = compact_iri(active_context.clone(), Keyword::Id, false, false, options)?;
+			let key: J = compact_iri(active_context.clone(), Keyword::Id, false, false, options)?;
 			let value = compact_iri(active_context.clone(), id, false, false, options)?;
-			map.insert(key.as_str().unwrap(), value);
+			map.insert(key.as_str().unwrap().into(), value);
 		}
 
 		// If `expanded_item` contains an @index entry,
 		// add an entry in `compacted_item` using the key from
 		// IRI compacting @index and the value of @index in `expanded_item`.
 		if let Some(index) = expanded_index {
-			let key = compact_iri(active_context.clone(), Keyword::Index, true, false, options)?;
-			map.insert(key.as_str().unwrap(), index.into());
+			let key: J = compact_iri(active_context.clone(), Keyword::Index, true, false, options)?;
+			map.insert(key.as_str().unwrap().into(), json::ValueRef::String(index).into());
 		}
 
 		// Use `add_value` to add `compacted_item` to the
 		// `item_active_property` entry in `nest_result` using `as_array`.
-		let compacted_item = JsonValue::Object(map);
+		let compacted_item: J = json::Value::Object(map).into();
 		add_value(nest_result, item_active_property, compacted_item, as_array)
 	}
 
 	Ok(())
 }
 
-fn select_nest_result<'a, T: Id, C: ContextMut<T>>(result: &'a mut json::object::Object, active_context: Inversible<T, &C>, item_active_property: &str, compact_arrays: bool) -> Result<(&'a mut json::object::Object, Container, bool), Error> {
+fn select_nest_result<'a, J: 'a + Json, T: Id, C: ContextMut<T>>(result: &'a mut J::Object, active_context: Inversible<T, &C>, item_active_property: &str, compact_arrays: bool) -> Result<(&'a mut J::Object, Container, bool), Error> {
 	let (nest_result, container) = match active_context.get(item_active_property) {
 		Some(term_definition) => {
 			let nest_result = match &term_definition.nest {
@@ -209,13 +225,13 @@ fn select_nest_result<'a, T: Id, C: ContextMut<T>>(result: &'a mut json::object:
 
 					// If result does not have a nest_term entry,
 					// initialize it to an empty map.
-					if result.get(nest_term).is_none() {
-						result.insert(nest_term, JsonValue::new_object())
+					if result.get(nest_term.as_str()).is_none() {
+						result.insert(nest_term.as_str().into(), json::Value::Object(J::Object::default()).into());
 					}
 
 					// Initialize `nest_result` to the value of `nest_term` in result.
-					match result.get_mut(nest_term) {
-						Some(JsonValue::Object(map)) => map,
+					match result.get_mut(nest_term.as_str()).map(J::as_mut) {
+						Some(json::ValueMut::Object(map)) => map,
 						_ => unreachable!()
 					}
 				},
@@ -250,8 +266,8 @@ fn select_nest_result<'a, T: Id, C: ContextMut<T>>(result: &'a mut json::object:
 }
 
 /// Compact the given property into the `result` compacted object.
-pub async fn compact_property<'a, T: 'a + Sync + Send + Id, N: 'a + object::Any<T> + Sync + Send, O: IntoIterator<Item=&'a Indexed<N>>, C: ContextMut<T>, L: Loader>(result: &mut json::object::Object, expanded_property: Term<T>, expanded_value: O, active_context: Inversible<T, &C>, loader: &mut L, inside_reverse: bool, options: Options)
--> Result<(), Error> where C: Sync + Send, C::LocalContext: Send + Sync + From<L::Output>, L: Sync + Send {
+pub async fn compact_property<'a, J: Json, T: 'a + Id, N: 'a + object::Any<J, T>, O: IntoIterator<Item=&'a Indexed<N>>, C: ContextMut<T>, L: Loader>(result: &mut J::Object, expanded_property: Term<T>, expanded_value: O, active_context: Inversible<T, &C>, loader: &mut L, inside_reverse: bool, options: Options)
+-> Result<(), Error> where C::LocalContext: From<L::Output> {
 	let lenient_expanded_property: Lenient<Term<T>> = expanded_property.into();
 	let mut is_empty = true;
 
@@ -265,7 +281,7 @@ pub async fn compact_property<'a, T: 'a + Sync + Send + Id, N: 'a + object::Any<
 		// If the term definition for `item_active_property` in the active context
 		// has a nest value entry (nest term)
 		if let Some(item_active_property) = item_active_property.as_str() {
-			let (nest_result, container, as_array) = select_nest_result(result, active_context.clone(), item_active_property, options.compact_arrays)?;
+			let (nest_result, container, as_array) = select_nest_result::<J, _, _>(result, active_context.clone(), item_active_property, options.compact_arrays)?;
 
 			// Initialize `compacted_item` to the result of using this algorithm
 			// recursively, passing `active_context`, `item_active_property` for
@@ -291,11 +307,11 @@ pub async fn compact_property<'a, T: 'a + Sync + Send + Id, N: 'a + object::Any<
 						// `item_active_property` in `nest_result`,
 						// initializing it to a new empty map, if necessary.
 						if !nest_result.get(item_active_property).is_some() {
-							nest_result.insert(item_active_property, JsonValue::new_object())
+							nest_result.insert(item_active_property.into(), json::Value::Object(J::Object::default()).into());
 						}
 
-						let map_object = match nest_result.get_mut(item_active_property) {
-							Some(JsonValue::Object(map)) => map,
+						let map_object = match nest_result.get_mut(item_active_property).map(J::as_mut) {
+							Some(json::ValueMut::Object(map)) => map,
 							_ => unreachable!()
 						};
 
@@ -311,7 +327,7 @@ pub async fn compact_property<'a, T: 'a + Sync + Send + Id, N: 'a + object::Any<
 							ContainerType::Type
 						};
 
-						let mut container_key = compact_iri(active_context.clone(), &Lenient::Ok(Term::Keyword(container_type.into())), true, false, options)?;
+						let mut container_key: J = compact_iri(active_context.clone(), &Lenient::Ok(Term::Keyword(container_type.into())), true, false, options)?;
 
 						// Initialize `index_key` to the value of index mapping in
 						// the term definition associated with `item_active_property`
@@ -355,30 +371,42 @@ pub async fn compact_property<'a, T: 'a + Sync + Send + Id, N: 'a + object::Any<
 
 								// Set `map_key` to the first value of
 								// `container_key` in `compacted_item`, if any.
-								let (map_key, remaining_values) = match &mut compacted_item {
-									JsonValue::Object(map) => match map.remove(container_key.as_str().unwrap()) {
-										Some(value) => match value {
-											JsonValue::Short(_) | JsonValue::String(_) => {
-												(Some(value.as_str().unwrap().to_string()), Vec::new())
+								let (map_key, remaining_values) = match compacted_item.as_mut() {
+									json::ValueMut::Object(map) => match map.remove(container_key.as_str().unwrap()) {
+										Some(value) => match value.into() {
+											json::Value::String(value) => {
+												(Some(value.to_string()), J::Array::default())
 											},
-											JsonValue::Array(mut values) => {
-												values.reverse();
-												match values.pop() {
+											json::Value::Array(mut values) => {
+												// values.reverse();
+												// match values.pop() {
+												// 	Some(first_value) => {
+												// 		values.reverse();
+												// 		(first_value.as_str().map(|v| v.to_string()), values)
+												// 	},
+												// 	None => {
+												// 		values.reverse();
+												// 		(None, values)
+												// 	}
+												// }
+												match values.pop_front() {
 													Some(first_value) => {
-														values.reverse();
 														(first_value.as_str().map(|v| v.to_string()), values)
 													},
 													None => {
-														values.reverse();
 														(None, values)
 													}
 												}
 											},
-											other_value => (None, vec![other_value])
+											other_value => {
+												let mut array = J::Array::default();
+												array.push_back(other_value.into());
+												(None, array)
+											}
 										},
-										None => (None, Vec::new())
+										None => (None, J::Array::default())
 									},
-									_ => (None, Vec::new())
+									_ => (None, J::Array::default())
 								};
 
 								// If there are remaining values in `compacted_item`
@@ -387,8 +415,8 @@ pub async fn compact_property<'a, T: 'a + Sync + Send + Id, N: 'a + object::Any<
 								// in `compacted_item`.
 								// Otherwise, remove that entry from compacted item.
 								if !remaining_values.is_empty() {
-									match &mut compacted_item {
-										JsonValue::Object(map) => {
+									match compacted_item.as_mut() {
+										json::ValueMut::Object(map) => {
 											for value in remaining_values {
 												add_value(map, container_key.as_str().unwrap(), value, false)
 											}
@@ -404,10 +432,9 @@ pub async fn compact_property<'a, T: 'a + Sync + Send + Id, N: 'a + object::Any<
 							// set `map_key` to the value of `container_key` in
 							// `compacted_item` and remove `container_key` from
 							// `compacted_item`.
-							match &mut compacted_item {
-								JsonValue::Object(map) => match map.remove(container_key.as_str().unwrap()) {
-									Some(JsonValue::String(str)) => Some(str.to_string()),
-									Some(JsonValue::Short(str)) => Some(str.to_string()),
+							match compacted_item.as_mut() {
+								json::ValueMut::Object(map) => match map.remove(container_key.as_str().unwrap()).map(|v| v.into()) {
+									Some(json::Value::String(str)) => Some(str.to_string()),
 									_ => None
 								},
 								_ => None
@@ -417,30 +444,42 @@ pub async fn compact_property<'a, T: 'a + Sync + Send + Id, N: 'a + object::Any<
 
 							// Set `map_key` to the first value of `container_key` in
 							// `compacted_item`, if any.
-							let (map_key, remaining_values) = match &mut compacted_item {
-								JsonValue::Object(map) => match map.remove(container_key.as_str().unwrap()) {
-									Some(value) => match value {
-										JsonValue::Short(_) | JsonValue::String(_) => {
-											(Some(value.as_str().unwrap().to_string()), Vec::new())
+							let (map_key, remaining_values) = match compacted_item.as_mut() {
+								json::ValueMut::Object(map) => match map.remove(container_key.as_str().unwrap()) {
+									Some(value) => match value.into() {
+										json::Value::String(value) => {
+											(Some(value.to_string()), J::Array::default())
 										},
-										JsonValue::Array(mut values) => {
-											values.reverse();
-											match values.pop() {
+										json::Value::Array(mut values) => {
+											// values.reverse();
+											// match values.pop() {
+											// 	Some(first_value) => {
+											// 		values.reverse();
+											// 		(first_value.as_str().map(|v| v.to_string()), values)
+											// 	},
+											// 	None => {
+											// 		values.reverse();
+											// 		(None, values)
+											// 	}
+											// }
+											match values.pop_front() {
 												Some(first_value) => {
-													values.reverse();
 													(first_value.as_str().map(|v| v.to_string()), values)
 												},
 												None => {
-													values.reverse();
 													(None, values)
 												}
 											}
 										},
-										other_value => (None, vec![other_value])
+										other_value => {
+											let mut array = J::Array::default();
+											array.push_back(other_value.into());
+											(None, array)
+										}
 									},
-									None => (None, Vec::new())
+									None => (None, J::Array::default())
 								},
-								_ => (None, Vec::new())
+								_ => (None, J::Array::default())
 							};
 
 							// If there are remaining values in `compacted_item` for
@@ -449,8 +488,8 @@ pub async fn compact_property<'a, T: 'a + Sync + Send + Id, N: 'a + object::Any<
 							// `compacted_item`.
 							// Otherwise, remove that entry from compacted item.
 							if !remaining_values.is_empty() {
-								match &mut compacted_item {
-									JsonValue::Object(map) => {
+								match compacted_item.as_mut() {
+									json::ValueMut::Object(map) => {
 										for value in remaining_values {
 											add_value(map, container_key.as_str().unwrap(), value, false)
 										}
@@ -465,7 +504,7 @@ pub async fn compact_property<'a, T: 'a + Sync + Send + Id, N: 'a + object::Any<
 							// passing `active_context`, `item_active_property` for
 							// `active_property`, and a map composed of the single
 							// entry for @id from `expanded_item` for `element`.
-							if let JsonValue::Object(map) = &compacted_item {
+							if let json::ValueRef::Object(map) = compacted_item.as_ref() {
 								if map.len() == 1 {
 									if let Some(_) = map.get("@id") {
 										let obj = Object::Node(Node::with_id(expanded_item.id().unwrap().clone()));
@@ -482,7 +521,7 @@ pub async fn compact_property<'a, T: 'a + Sync + Send + Id, N: 'a + object::Any<
 						let map_key = match map_key {
 							Some(key) => key,
 							None => {
-								let key = compact_iri(active_context.clone(), Keyword::None, true, false, options)?;
+								let key: J = compact_iri(active_context.clone(), Keyword::None, true, false, options)?;
 								key.as_str().unwrap().to_string()
 							}
 						};
@@ -505,16 +544,17 @@ pub async fn compact_property<'a, T: 'a + Sync + Send + Id, N: 'a + object::Any<
 		// Initialize `item_active_property` by IRI compacting
 		// `expanded_property` using `expanded_value` for `value` and
 		// `inside_reverse` for `reverse`.
-		let item_active_property = compact_iri_with(active_context.clone(), &lenient_expanded_property, &Indexed::new(Object::Node(Node::new()), None), true, inside_reverse, options)?;
+		let item_active_property: J = compact_iri_with(active_context.clone(), &lenient_expanded_property, &Indexed::new(Object::Node(Node::new()), None), true, inside_reverse, options)?;
 
 		// If the term definition for `item_active_property` in the active context
 		// has a nest value entry (nest term):
 		if let Some(item_active_property) = item_active_property.as_str() {
-			let (nest_result, _, _) = select_nest_result(result, active_context.clone(), item_active_property, options.compact_arrays)?;
+			let (nest_result, _, _) = select_nest_result::<J, _, _>(result, active_context.clone(), item_active_property, options.compact_arrays)?;
 
 			// Use `add_value` to add an empty array to the `item_active_property` entry in
 			// `nest_result` using true for `as_array`.
-			add_value(nest_result, item_active_property, JsonValue::Array(Vec::new()), true)
+			let value: J = json::Value::Array(J::Array::default()).into();
+			add_value(nest_result, item_active_property, value, true)
 		}
 	}
 

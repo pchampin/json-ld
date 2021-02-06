@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use futures::future::{BoxFuture, FutureExt};
+use futures::future::{LocalBoxFuture, FutureExt};
 use mown::Mown;
 use iref::Iri;
 use langtag::LanguageTagBuf;
@@ -48,7 +48,7 @@ pub fn node_id_of_term<T: Id>(term: Lenient<Term<T>>) -> Option<Lenient<Referenc
 	}
 }
 
-pub async fn expand_node<J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &C, type_scoped_context: &C, active_property: Option<&str>, expanded_entries: Vec<Entry<'_, (&str, Term<T>), J>>, base_url: Option<Iri<'_>>, loader: &mut L, options: Options) -> Result<Option<Indexed<Node<T>>>, Error> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
+pub async fn expand_node<J: Json, T: Id, C: ContextMut<T>, L: Loader>(active_context: &C, type_scoped_context: &C, active_property: Option<&str>, expanded_entries: Vec<Entry<'_, (&str, Term<T>), J>>, base_url: Option<Iri<'_>>, loader: &mut L, options: Options) -> Result<Option<Indexed<Node<J, T>>>, Error> where C::LocalContext: From<L::Output> + From<J>, L::Output: Into<J> {
 	// Initialize two empty maps, `result` and `nests`.
 	let mut result = Indexed::new(Node::new(), None);
 	let mut has_value_object_entries = false;
@@ -87,7 +87,7 @@ pub async fn expand_node<J: Json, T: Send + Sync + Id, C: Send + Sync + ContextM
 	Ok(Some(result))
 }
 
-fn expand_node_entries<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(result: &'a mut Indexed<Node<T>>, has_value_object_entries: &'a mut bool, active_context: &'a C, type_scoped_context: &'a C, active_property: Option<&'a str>, expanded_entries: Vec<Entry<'a, (&'a str, Term<T>), J>>, base_url: Option<Iri<'a>>, loader: &'a mut L, options: Options) -> BoxFuture<'a, Result<(), Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
+fn expand_node_entries<'a, J: Json, T: Id, C: ContextMut<T>, L: Loader>(result: &'a mut Indexed<Node<J, T>>, has_value_object_entries: &'a mut bool, active_context: &'a C, type_scoped_context: &'a C, active_property: Option<&'a str>, expanded_entries: Vec<Entry<'a, (&'a str, Term<T>), J>>, base_url: Option<Iri<'a>>, loader: &'a mut L, options: Options) -> LocalBoxFuture<'a, Result<(), Error>> where C::LocalContext: From<L::Output> + From<J>, L::Output: Into<J> {
 	async move {
 		// For each `key` and `value` in `element`, ordered lexicographically by key
 		// if `ordered` is `true`:
@@ -179,7 +179,7 @@ fn expand_node_entries<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + Contex
 							let expanded_value = expand_element(active_context, Some("@included"), value, base_url, loader, options, false).await?;
 							let mut expanded_nodes = Vec::new();
 							for obj in expanded_value.into_iter() {
-								match obj.try_cast::<Node<T>>() {
+								match obj.try_cast::<Node<J, T>>() {
 									Ok(node) => expanded_nodes.push(node),
 									Err(_) => {
 										return Err(ErrorCode::InvalidIncludedValue.into())
@@ -245,7 +245,7 @@ fn expand_node_entries<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + Contex
 											} else {
 												let mut reverse_expanded_nodes = Vec::new();
 												for object in reverse_expanded_value {
-													match object.try_cast::<Node<T>>() {
+													match object.try_cast::<Node<J, T>>() {
 														Ok(node) => reverse_expanded_nodes.push(node),
 														Err(_) => {
 															return Err(ErrorCode::InvalidReversePropertyValue.into())
@@ -270,7 +270,7 @@ fn expand_node_entries<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + Contex
 									let mut nested_entries = Vec::new();
 
 									for (nested_key, nested_value) in nested.iter() {
-										nested_entries.push(Entry(nested_key, nested_value))
+										nested_entries.push(Entry(nested_key.as_ref(), nested_value))
 									}
 
 									if options.ordered {
@@ -411,7 +411,7 @@ fn expand_node_entries<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + Contex
 						// is a map then value is expanded from a map as follows:
 
 						// Initialize expanded value to an empty array.
-						let mut expanded_value: Vec<Indexed<Object<T>>> = Vec::new();
+						let mut expanded_value: Vec<Indexed<Object<J, T>>> = Vec::new();
 
 						// Initialize `index_key` to the key's index mapping in
 						// `active_context`, or @index, if it does not exist.
@@ -615,7 +615,7 @@ fn expand_node_entries<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + Contex
 							// We must filter out anything that is not an object.
 							let mut reverse_expanded_nodes = Vec::new();
 							for object in expanded_value {
-								match object.try_cast::<Node<T>>() {
+								match object.try_cast::<Node<J, T>>() {
 									Ok(node) => reverse_expanded_nodes.push(node),
 									Err(_) => {
 										return Err(ErrorCode::InvalidReversePropertyValue.into())
@@ -636,5 +636,5 @@ fn expand_node_entries<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + Contex
 		};
 
 		Ok(())
-	}.boxed()
+	}.boxed_local()
 }

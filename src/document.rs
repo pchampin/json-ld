@@ -3,12 +3,15 @@ use std::ops::{
 	Deref,
 	DerefMut
 };
-use futures::future::{BoxFuture, FutureExt};
+use futures::future::{LocalBoxFuture, FutureExt};
+use cc_traits::{
+	Len,
+	MapInsert
+};
 use iref::{
 	Iri,
 	IriBuf
 };
-use json::JsonValue;
 use crate::{
 	Error,
 	Id,
@@ -22,13 +25,18 @@ use crate::{
 		Loader
 	},
 	expansion,
-	compaction
+	compaction,
+	json::{
+		self,
+		Json,
+		AsJson
+	}
 };
 
 /// Result of the document expansion algorithm.
 ///
 /// It is just an alias for a set of (indexed) objects.
-pub type ExpandedDocument<T> = HashSet<Indexed<Object<T>>>;
+pub type ExpandedDocument<J, T> = HashSet<Indexed<Object<J, T>>>;
 
 /// JSON-LD document.
 ///
@@ -38,7 +46,7 @@ pub trait Document<T: Id> {
 	/// The type of local contexts that may appear in the document.
 	///
 	/// This will most likely be [`JsonValue`].
-	type LocalContext: context::Local<T>;
+	type Json: context::Local<T>;
 
 	/// Document location, if any.
 	fn base_url(&self) -> Option<Iri>;
@@ -51,10 +59,11 @@ pub trait Document<T: Id> {
 	///
 	/// This is an asynchronous method since expanding the context may require loading remote
 	/// ressources. It returns a boxed [`Future`](`std::future::Future`) to the result.
-	fn expand_with<'a, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(&'a self, base_url: Option<Iri>, context: &'a C, loader: &'a mut L, options: expansion::Options) -> BoxFuture<'a, Result<ExpandedDocument<T>, Error>> where
-		C::LocalContext: Send + Sync + From<L::Output> + From<Self::LocalContext>,
-		L::Output: Into<Self::LocalContext>,
-		T: 'a + Send + Sync;
+	fn expand_with<'a, C: ContextMut<T>, L: Loader>(&'a self, base_url: Option<Iri>, context: &'a C, loader: &'a mut L, options: expansion::Options) -> LocalBoxFuture<'a, Result<ExpandedDocument<Self::Json, T>, Error>>
+	where
+		C::LocalContext: From<L::Output> + From<Self::Json>,
+		L::Output: Into<Self::Json>,
+		T: 'a;
 
 	/// Expand the document.
 	///
@@ -89,24 +98,24 @@ pub trait Document<T: Id> {
 	/// # Ok(())
 	/// # }
 	/// ```
-	fn expand<'a, C: 'a + Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(&'a self, loader: &'a mut L) -> BoxFuture<'a, Result<ExpandedDocument<T>, Error>> where
-		C::LocalContext: Send + Sync + From<L::Output> + From<Self::LocalContext>,
-		L::Output: Into<Self::LocalContext>,
-		T: 'a + Send + Sync,
-		Self: Sync
+	fn expand<'a, C: 'a + ContextMut<T>, L: Loader>(&'a self, loader: &'a mut L) -> LocalBoxFuture<'a, Result<ExpandedDocument<Self::Json, T>, Error>>
+	where
+		C::LocalContext: From<L::Output> + From<Self::Json>,
+		L::Output: Into<Self::Json>,
+		T: 'a
 	{
 		async move {
 			let context = C::new(self.base_url());
 			self.expand_with(self.base_url(), &context, loader, expansion::Options::default()).await
-		}.boxed()
+		}.boxed_local()
 	}
 
-	fn compact_with<'a, C: ContextMutProxy<T> + Send + Sync + crate::util::AsJson, L: Send + Sync + Loader>(&'a self, base_url: Option<Iri<'a>>, context: &'a C, loader: &'a mut L, options: compaction::Options) -> BoxFuture<'a, Result<JsonValue, Error>> where
-		C::Target: Send + Sync + Default,
-		<C::Target as Context<T>>::LocalContext: Send + Sync + From<L::Output> + From<Self::LocalContext>,
-		L::Output: Into<Self::LocalContext>,
-		T: 'a + Send + Sync,
-		Self: Sync
+	fn compact_with<'a, C: ContextMutProxy<T> + AsJson<Self::Json>, L: Loader>(&'a self, base_url: Option<Iri<'a>>, context: &'a C, loader: &'a mut L, options: compaction::Options) -> LocalBoxFuture<'a, Result<Self::Json, Error>>
+	where
+		C::Target: Default,
+		<C::Target as Context<T>>::LocalContext: From<L::Output> + From<Self::Json>,
+		L::Output: Into<Self::Json>,
+		T: 'a,
 	{
 		use compaction::Compact;
 		async move {
@@ -120,9 +129,9 @@ pub trait Document<T: Id> {
 				expanded.compact_with(context.clone(), context.clone(), None, loader, options.into()).await?
 			};
 
-			let mut map = match compacted {
-				JsonValue::Array(items) => {
-					let mut map = json::object::Object::new();
+			let mut map = match compacted.into() {
+				json::Value::Array(items) => {
+					let mut map = <Self::Json as Json>::Object::default();
 					if !items.is_empty() {
 						use crate::{
 							Lenient,
@@ -131,54 +140,54 @@ pub trait Document<T: Id> {
 								Keyword
 							}
 						};
-						let key = crate::compaction::compact_iri(context.clone(), &Lenient::Ok(Term::Keyword(Keyword::Graph)), true, false, options.into())?;
-						map.insert(key.as_str().unwrap(), JsonValue::Array(items));
+						let key: Self::Json = crate::compaction::compact_iri(context.clone(), &Lenient::Ok(Term::Keyword(Keyword::Graph)), true, false, options.into())?;
+						map.insert(key.as_str().unwrap().into(), json::Value::Array(items).into());
 					}
 
 					map
 				},
-				JsonValue::Object(map) => map,
+				json::Value::Object(map) => map,
 				_ => panic!("invalid compact document")
 			};
 
 			if !map.is_empty() && !json_context.is_null() && !json_context.is_empty() {
-				map.insert("@context", json_context)
+				map.insert("@context".into(), json_context);
 			}
 
-			Ok(JsonValue::Object(map))
-		}.boxed()
+			Ok(json::Value::Object(map).into())
+		}.boxed_local()
 	}
 
-	fn compact<'a, C: ContextMutProxy<T> + Send + Sync + crate::util::AsJson, L: Send + Sync + Loader>(&'a self, context: &'a C, loader: &'a mut L) -> BoxFuture<'a, Result<JsonValue, Error>> where
-		C::Target: Send + Sync + Default,	
-		<C::Target as Context<T>>::LocalContext: Send + Sync + From<L::Output> + From<Self::LocalContext>,
-		L::Output: Into<Self::LocalContext>,
-		T: 'a + Id + Send + Sync,
-		Self: Sync
+	fn compact<'a, C: ContextMutProxy<T> + AsJson<Self::Json>, L: Loader>(&'a self, context: &'a C, loader: &'a mut L) -> LocalBoxFuture<'a, Result<Self::Json, Error>>
+	where
+		C::Target: Default,
+		<C::Target as Context<T>>::LocalContext: From<L::Output> + From<Self::Json>,
+		L::Output: Into<Self::Json>,
+		T: 'a
 	{
 		self.compact_with(self.base_url(), context, loader, compaction::Options::default())
 	}
 }
 
-/// Default JSON document implementation.
-impl<T: Id> Document<T> for JsonValue {
-	type LocalContext = JsonValue;
+// /// Default JSON document implementation.
+// impl<T: Id> Document<T> for JsonValue {
+// 	type LocalContext = JsonValue;
 
-	/// Returns `None`.
-	///
-	/// Use [`RemoteDocument`] to attach a base URL to a `JsonValue` document.
-	fn base_url(&self) -> Option<Iri> {
-		None
-	}
+// 	/// Returns `None`.
+// 	///
+// 	/// Use [`RemoteDocument`] to attach a base URL to a `JsonValue` document.
+// 	fn base_url(&self) -> Option<Iri> {
+// 		None
+// 	}
 
-	fn expand_with<'a, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(&'a self, base_url: Option<Iri>, context: &'a C, loader: &'a mut L, options: expansion::Options) -> BoxFuture<'a, Result<ExpandedDocument<T>, Error>> where
-		C::LocalContext: Send + Sync + From<L::Output> + From<JsonValue>,
-		L::Output: Into<JsonValue>,
-		T: 'a + Send + Sync
-	{
-		expansion::expand(context, self, base_url, loader, options).boxed()
-	}
-}
+// 	fn expand_with<'a, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(&'a self, base_url: Option<Iri>, context: &'a C, loader: &'a mut L, options: expansion::Options) -> BoxFuture<'a, Result<ExpandedDocument<T>, Error>> where
+// 		C::LocalContext: Send + Sync + From<L::Output> + From<JsonValue>,
+// 		L::Output: Into<JsonValue>,
+// 		T: 'a + Send + Sync
+// 	{
+// 		expansion::expand(context, self, base_url, loader, options).boxed()
+// 	}
+// }
 
 /// Remote JSON-LD document.
 ///
@@ -208,7 +217,7 @@ impl<T: Id> Document<T> for JsonValue {
 /// let doc: RemoteDocument<JsonValue> = task::block_on(loader.load(url)).unwrap();
 /// ```
 #[derive(Clone)]
-pub struct RemoteDocument<D = JsonValue> {
+pub struct RemoteDocument<D> {
 	/// The base URL of the document.
 	base_url: IriBuf,
 
@@ -238,16 +247,17 @@ impl<D> RemoteDocument<D> {
 
 /// A Remote document is a document.
 impl<T: Id, D: Document<T>> Document<T> for RemoteDocument<D> {
-	type LocalContext = D::LocalContext;
+	type Json = D::Json;
 
 	fn base_url(&self) -> Option<Iri> {
 		Some(self.base_url.as_iri())
 	}
 
-	fn expand_with<'a, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(&'a self, base_url: Option<Iri>, context: &'a C, loader: &'a mut L, options: expansion::Options) -> BoxFuture<'a, Result<ExpandedDocument<T>, Error>> where
-		C::LocalContext: Send + Sync + From<L::Output> + From<Self::LocalContext>,
-		L::Output: Into<Self::LocalContext>,
-		T: 'a + Send + Sync
+	fn expand_with<'a, C: ContextMut<T>, L: Loader>(&'a self, base_url: Option<Iri>, context: &'a C, loader: &'a mut L, options: expansion::Options) -> LocalBoxFuture<'a, Result<ExpandedDocument<Self::Json, T>, Error>>
+	where
+		C::LocalContext: From<L::Output> + From<Self::Json>,
+		L::Output: Into<Self::Json>,
+		T: 'a
 	{
 		self.doc.expand_with(base_url, context, loader, options)
 	}

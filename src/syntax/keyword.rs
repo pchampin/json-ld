@@ -1,7 +1,9 @@
 use std::convert::TryFrom;
 use std::fmt;
-use json::JsonValue;
-use crate::util;
+use crate::json::{
+	Json,
+	AsJson
+};
 
 /// JSON-LD keywords.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -193,9 +195,9 @@ impl fmt::Display for Keyword {
 	}
 }
 
-impl util::AsJson for Keyword {
-	fn as_json(&self) -> JsonValue {
-		self.into_str().into()
+impl<J: Json> AsJson<J> for Keyword {
+	fn as_json(&self) -> J {
+		self.into_str().as_json()
 	}
 }
 

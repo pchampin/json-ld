@@ -1,5 +1,4 @@
 use std::borrow::Borrow;
-use json::JsonValue;
 use crate::{
 	Id,
 	Context,
@@ -23,6 +22,10 @@ use crate::{
 		Term,
 		ToLenientTerm,
 		Type
+	},
+	json::{
+		self,
+		Json
 	}
 };
 use super::{
@@ -33,26 +36,26 @@ use super::{
 /// Compact the given term without considering any value.
 /// 
 /// Calls [`compact_iri_full`] with `None` for `value`.
-pub(crate) fn compact_iri<'a, T: 'a + Id, C: Context<T>, V: ToLenientTerm<T>>(active_context: Inversible<T, &C>, var: V, vocab: bool, reverse: bool, options: Options) -> Result<JsonValue, Error> {
-	compact_iri_full::<T, C, V, Object<T>>(active_context, var, None, vocab, reverse, options)
+pub(crate) fn compact_iri<'a, J: Json, T: 'a + Id, C: Context<T>, V: ToLenientTerm<T>>(active_context: Inversible<T, &C>, var: V, vocab: bool, reverse: bool, options: Options) -> Result<J, Error> {
+	compact_iri_full::<J, T, C, V, Object<J, T>>(active_context, var, None, vocab, reverse, options)
 }
 
 /// Compact the given term considering the given value object.
 /// 
 /// Calls [`compact_iri_full`] with `Some(value)`.
-pub(crate) fn compact_iri_with<'a, T: 'a + Id, C: Context<T>, V: ToLenientTerm<T>, N: object::Any<T>>(active_context: Inversible<T, &C>, var: V, value: &Indexed<N>, vocab: bool, reverse: bool, options: Options) -> Result<JsonValue, Error> {
+pub(crate) fn compact_iri_with<'a, J: Json, T: 'a + Id, C: Context<T>, V: ToLenientTerm<T>, N: object::Any<J, T>>(active_context: Inversible<T, &C>, var: V, value: &Indexed<N>, vocab: bool, reverse: bool, options: Options) -> Result<J, Error> {
 	compact_iri_full(active_context, var, Some(value), vocab, reverse, options)
 }
 
 /// Compact the given term.
 /// 
 /// Default value for `value` is `None` and `false` for `vocab` and `reverse`.
-pub(crate) fn compact_iri_full<'a, T: 'a + Id, C: Context<T>, V: ToLenientTerm<T>, N: object::Any<T>>(active_context: Inversible<T, &C>, var: V, value: Option<&Indexed<N>>, vocab: bool, reverse: bool, options: Options) -> Result<JsonValue, Error> {
+pub(crate) fn compact_iri_full<'a, J: Json, T: 'a + Id, C: Context<T>, V: ToLenientTerm<T>, N: object::Any<J, T>>(active_context: Inversible<T, &C>, var: V, value: Option<&Indexed<N>>, vocab: bool, reverse: bool, options: Options) -> Result<J, Error> {
 	let var = var.to_lenient_term();
 	let var = var.borrow();
 
 	if var == &Lenient::Ok(Term::Null) {
-		return Ok(JsonValue::Null)
+		return Ok(json::Value::Null.into())
 	}
 
 	if vocab {
@@ -267,7 +270,7 @@ pub(crate) fn compact_iri_full<'a, T: 'a + Id, C: Context<T>, V: ToLenientTerm<T
 										has_id_type = true;
 										let mut vocab = false;
 										if let Lenient::Ok(id) = id {
-											let compacted_iri = compact_iri(active_context.clone(), id, true, false, options)?;
+											let compacted_iri: J = compact_iri(active_context.clone(), id, true, false, options)?;
 											if let Some(def) = active_context.get(compacted_iri.as_str().unwrap()) {
 												if let Some(iri_mapping) = &def.value {
 													vocab = iri_mapping == id;
@@ -322,7 +325,7 @@ pub(crate) fn compact_iri_full<'a, T: 'a + Id, C: Context<T>, V: ToLenientTerm<T
 				};
 
 				if let Some(term) = entry.select(&containers, &selection) {
-					return Ok(term.into())
+					return Ok(json::ValueRef::String(term).into())
 				}
 			}
 		}
@@ -336,7 +339,7 @@ pub(crate) fn compact_iri_full<'a, T: 'a + Id, C: Context<T>, V: ToLenientTerm<T
 			if let Some(suffix) = var.as_str().strip_prefix(vocab_mapping.as_str()) {
 				if !suffix.is_empty() {
 					if active_context.get(suffix).is_none() {
-						return Ok(suffix.into())
+						return Ok(json::ValueRef::String(suffix).into())
 					}
 				}
 			}
@@ -383,7 +386,7 @@ pub(crate) fn compact_iri_full<'a, T: 'a + Id, C: Context<T>, V: ToLenientTerm<T
 
 	// If compact IRI is not null, return compact IRI.
 	if !compact_iri.is_empty() {
-		return Ok(compact_iri.into())
+		return Ok(json::Value::String(compact_iri).into())
 	}
 
 	// To ensure that the IRI var is not confused with a compact IRI,
@@ -402,11 +405,11 @@ pub(crate) fn compact_iri_full<'a, T: 'a + Id, C: Context<T>, V: ToLenientTerm<T
 	if !vocab {
 		if let Some(base_iri) = active_context.base_iri() {
 			if let Some(iri) = var.as_iri() {
-				return Ok(iri.relative_to(base_iri).as_str().into())
+				return Ok(json::ValueRef::String(iri.relative_to(base_iri).as_str()).into())
 			}
 		}
 	}
 
 	// Finally, return var as is.
-	Ok(var.as_str().into())
+	Ok(json::ValueRef::String(var.as_str()).into())
 }

@@ -1,7 +1,6 @@
 use iref::{Iri, IriBuf};
 use langtag::LanguageTagBuf;
 use crate::{
-	json::Json,
 	Nullable,
 	Id,
 	Direction,
@@ -11,7 +10,6 @@ use crate::{
 		Container
 	}
 };
-use super::Context;
 
 // A term definition.
 #[derive(Clone)]

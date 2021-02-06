@@ -1,5 +1,5 @@
 use mown::Mown;
-use futures::future::{BoxFuture, FutureExt};
+use futures::future::{LocalBoxFuture, FutureExt};
 use iref::Iri;
 use cc_traits::{
 	Len,
@@ -42,7 +42,7 @@ use super::{
 
 /// https://www.w3.org/TR/json-ld11-api/#expansion-algorithm
 /// The default specified value for `ordered` and `from_map` is `false`.
-pub fn expand_element<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &'a C, active_property: Option<&'a str>, element: &'a J, base_url: Option<Iri<'a>>, loader: &'a mut L, options: Options, from_map: bool) -> BoxFuture<'a, Result<Expanded<T>, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
+pub fn expand_element<'a, J: Json, T: Id, C: ContextMut<T>, L: Loader>(active_context: &'a C, active_property: Option<&'a str>, element: &'a J, base_url: Option<Iri<'a>>, loader: &'a mut L, options: Options, from_map: bool) -> LocalBoxFuture<'a, Result<Expanded<J, T>, Error>> where C::LocalContext: From<L::Output> + From<J>, L::Output: Into<J> {
 	async move {
 		// If `element` is null, return null.
 		if element.is_null() {
@@ -132,12 +132,12 @@ pub fn expand_element<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + Context
 					active_context = Mown::Owned(local_context.process_with(active_context.as_ref(), loader, base_url, options.into()).await?.into_inner());
 				}
 
-				let mut type_entries = Vec::new();
+				let mut type_entries: Vec<Entry<&str, J>> = Vec::new();
 				for Entry(key, value) in entries.iter() {
 					let expanded_key = expand_iri(active_context.as_ref(), key, false, true);
 					match &expanded_key {
 						Lenient::Ok(Term::Keyword(Keyword::Type)) => {
-							type_entries.push(Entry(key, value));
+							type_entries.push(Entry(key, *value));
 						},
 						_ => ()
 					}
@@ -155,7 +155,7 @@ pub fn expand_element<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + Context
 				// key IRI expands to @type:
 				for Entry(_, value) in &type_entries {
 					// Convert `value` into an array, if necessary.
-					let value = as_array(value);
+					let value = as_array(*value);
 
 					// For each `term` which is a value of `value` ordered lexicographically,
 					let mut sorted_value = Vec::with_capacity(value.len());
@@ -188,7 +188,7 @@ pub fn expand_element<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + Context
 				// key.
 				// Both the key and value of the matched entry are IRI expanded.
 				let input_type = if let Some(Entry(_, value)) = type_entries.first() {
-					if let Some(input_type) = as_array(value).last() {
+					if let Some(input_type) = as_array(*value).last() {
 						if let Some(input_type) = input_type.as_str() {
 							Some(expand_iri(active_context.as_ref(), input_type, false, true))
 						} else {
@@ -295,7 +295,7 @@ pub fn expand_element<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + Context
 				} else {
 					// Node objects.
 					if let Some(result) = expand_node(active_context.as_ref(), type_scoped_context, active_property, expanded_entries, base_url, loader, options).await? {
-						Ok(result.cast::<Object<T>>().into())
+						Ok(result.cast::<Object<J, T>>().into())
 					} else {
 						Ok(Expanded::Null)
 					}
@@ -339,5 +339,5 @@ pub fn expand_element<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + Context
 				return Ok(Expanded::Object(expand_literal(active_context.as_ref(), active_property, element)?))
 			}
 		}
-	}.boxed()
+	}.boxed_local()
 }

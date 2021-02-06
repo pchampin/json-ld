@@ -1,9 +1,11 @@
 use std::hash::Hash;
 use iref::{Iri, IriBuf, AsIri};
-use json::JsonValue;
 use crate::{
 	syntax::TermLike,
-	util
+	json::{
+		Json,
+		AsJson
+	}
 };
 
 /// Unique identifier types.
@@ -79,8 +81,8 @@ impl<T: Id> TermLike for T {
 	}
 }
 
-impl<T: Id> util::AsJson for T {
-	fn as_json(&self) -> JsonValue {
-		self.as_iri().as_str().into()
+impl<J: Json, T: Id> AsJson<J> for T {
+	fn as_json(&self) -> J {
+		self.as_iri().as_str().as_json()
 	}
 }

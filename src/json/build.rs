@@ -48,7 +48,7 @@ impl<J: Json, T: AsRef<[u8]>> AsJson<J> for LanguageTagBuf<T> {
 
 impl<J: Json, T: AsJson<J>> AsJson<J> for [T] {
 	fn as_json(&self) -> J {
-		let ary = J::Array::with_capacity(self.len());
+		let mut ary = J::Array::with_capacity(self.len());
 		for item in self {
 			ary.push_back(item.as_json());
 		}
@@ -63,9 +63,9 @@ impl<J: Json, T: AsJson<J>> AsJson<J> for Vec<T> {
 	}
 }
 
-impl<J: Json, T: AsJson> AsJson<J> for HashSet<T> {
+impl<J: Json, T: AsJson<J>> AsJson<J> for HashSet<T> {
 	fn as_json(&self) -> J {
-		let ary = J::Array::with_capacity(self.len());
+		let mut ary = J::Array::with_capacity(self.len());
 		for item in self {
 			ary.push_back(item.as_json());
 		}

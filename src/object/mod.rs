@@ -6,6 +6,7 @@ pub mod node;
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::fmt;
+use cc_traits::MapInsert;
 use iref::{Iri, IriBuf};
 use langtag::LanguageTag;
 use crate::{
@@ -27,11 +28,11 @@ pub use value::{
 };
 pub use node::Node;
 
-pub trait Any<J: Json, T: Id>: AsJson {
-	fn as_ref(&self) -> Ref<T>;
+pub trait Any<J: Json, T: Id>: AsJson<J> {
+	fn as_ref(&self) -> Ref<J, T>;
 
 	#[inline]
-	fn id(&self) -> Option<&Lenient<Reference<T>>> {
+	fn id<'a>(&'a self) -> Option<&'a Lenient<Reference<T>>> where J: 'a {
 		match self.as_ref() {
 			Ref::Node(n) => n.id.as_ref(),
 			_ => None
@@ -39,7 +40,7 @@ pub trait Any<J: Json, T: Id>: AsJson {
 	}
 
 	#[inline]
-	fn language<'a>(&'a self) -> Option<LanguageTag> where T: 'a {
+	fn language<'a>(&'a self) -> Option<LanguageTag> where J: 'a, T: 'a {
 		match self.as_ref() {
 			Ref::Value(value) => value.language(),
 			_ => None
@@ -80,7 +81,7 @@ pub trait Any<J: Json, T: Id>: AsJson {
 }
 
 /// Object reference.
-pub enum Ref<'a, J: Json, T: Id> {
+pub enum Ref<'a, J: 'a + Json, T: Id> {
 	/// Value object.
 	Value(&'a Value<J, T>),
 
@@ -98,10 +99,10 @@ pub enum Ref<'a, J: Json, T: Id> {
 #[derive(PartialEq, Eq, Hash)]
 pub enum Object<J: Json, T: Id = IriBuf> {
 	/// Value object.
-	Value(Value<T>),
+	Value(Value<J, T>),
 
 	/// Node object.
-	Node(Node<T>),
+	Node(Node<J, T>),
 
 	/// List object.
 	List(Vec<Indexed<Object<J, T>>>),
@@ -181,7 +182,7 @@ impl<J: Json, T: Id> Object<J, T> {
 	}
 
 	/// Get the value as a number, if it is.
-	pub fn as_number(&self) -> Option<J::Number> {
+	pub fn as_number(&self) -> Option<&J::Number> {
 		match self {
 			Object::Value(value) => value.as_number(),
 			_ => None
@@ -189,7 +190,7 @@ impl<J: Json, T: Id> Object<J, T> {
 	}
 
 	/// Try to convert this object into an unnamed graph.
-	pub fn into_unnamed_graph(self: Indexed<Self>) -> Result<HashSet<Indexed<Object<T>>>, Indexed<Self>> {
+	pub fn into_unnamed_graph(self: Indexed<Self>) -> Result<HashSet<Indexed<Object<J, T>>>, Indexed<Self>> {
 		let (obj, index) = self.into_parts();
 		match obj {
 			Object::Node(n) => {
@@ -212,7 +213,7 @@ impl<J: Json, T: Id> Object<J, T> {
 	}
 }
 
-impl<J: Json, T: Id> Any<T> for Object<J, T> {
+impl<J: Json, T: Id> Any<J, T> for Object<J, T> {
 	fn as_ref(&self) -> Ref<J, T> {
 		match self {
 			Object::Value(value) => Ref::Value(value),
@@ -222,20 +223,20 @@ impl<J: Json, T: Id> Any<T> for Object<J, T> {
 	}
 }
 
-impl<J: Json, T: Id> fmt::Debug for Object<J, T> {
+impl<J: Json + fmt::Debug, T: Id> fmt::Debug for Object<J, T> {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		write!(f, "{}", self.as_json().pretty(2))
+		write!(f, "{:?}", self.as_json())
 	}
 }
 
 impl<J: Json, T: Id> From<Value<J, T>> for Object<J, T> {
-	fn from(value: Value<T>) -> Object<T> {
+	fn from(value: Value<J, T>) -> Object<J, T> {
 		Object::Value(value)
 	}
 }
 
 impl<J: Json, T: Id> From<Node<J, T>> for Object<J, T> {
-	fn from(node: Node<T>) -> Object<T> {
+	fn from(node: Node<J, T>) -> Object<J, T> {
 		Object::Node(node)
 	}
 }
@@ -246,9 +247,9 @@ impl<J: Json, T: Id> AsJson<J> for Object<J, T> {
 			Object::Value(v) => v.as_json(),
 			Object::Node(n) => n.as_json(),
 			Object::List(items) => {
-				let mut obj = J::Object::new();
-				obj.insert(Keyword::List.into(), items.as_json());
-				json::Value::Object(obj)
+				let mut obj = J::Object::default();
+				obj.insert(Keyword::List.into_str().into(), items.as_json());
+				json::Value::Object(obj).into()
 			}
 		}
 	}

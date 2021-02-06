@@ -22,7 +22,7 @@ use crate::{
 };
 use super::{Entry, expand_iri};
 
-pub fn expand_value<'a, J: Json, T: Id, C: ContextMut<T>>(input_type: Option<Lenient<Term<T>>>, type_scoped_context: &C, expanded_entries: Vec<Entry<(&str, Term<T>), J>>, value_entry: &J) -> Result<Option<Indexed<Object<T>>>, Error> {
+pub fn expand_value<'a, J: Json, T: Id, C: ContextMut<T>>(input_type: Option<Lenient<Term<T>>>, type_scoped_context: &C, expanded_entries: Vec<Entry<(&str, Term<T>), J>>, value_entry: &J) -> Result<Option<Indexed<Object<J, T>>>, Error> {
 	let mut is_json = input_type == Some(Lenient::Ok(Term::Keyword(Keyword::Json)));
 	let mut ty = None;
 	let mut index = None;
@@ -125,7 +125,7 @@ pub fn expand_value<'a, J: Json, T: Id, C: ContextMut<T>>(input_type: Option<Len
 			Literal::String(value_entry.to_string())
 		},
 		json::ValueRef::Number(n) => {
-			Literal::Number(n)
+			Literal::Number(n.clone())
 		},
 		json::ValueRef::Boolean(b) => {
 			Literal::Boolean(b)

@@ -22,7 +22,7 @@ use super::{
 	expand_element
 };
 
-pub async fn expand_array<J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &C, active_property: Option<&str>, active_property_definition: Option<&TermDefinition<C::LocalContext, T>>, element: &J::Array, base_url: Option<Iri<'_>>, loader: &mut L, options: Options, from_map: bool) -> Result<Expanded<T>, Error> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
+pub async fn expand_array<J: Json, T: Id, C: ContextMut<T>, L: Loader>(active_context: &C, active_property: Option<&str>, active_property_definition: Option<&TermDefinition<C::LocalContext, T>>, element: &J::Array, base_url: Option<Iri<'_>>, loader: &mut L, options: Options, from_map: bool) -> Result<Expanded<J, T>, Error> where C::LocalContext: From<L::Output> + From<J>, L::Output: Into<J> {
 	// Initialize an empty array, result.
 	let mut is_list = false;
 	let mut result = Vec::new();

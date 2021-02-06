@@ -6,13 +6,16 @@ use iref::{
 	Iri,
 	AsIri
 };
-use json::JsonValue;
 use crate::{
 	Id,
 	Lenient,
 	Reference,
 	BlankId,
-	util::AsJson
+	json::{
+		self,
+		Json,
+		AsJson
+	}
 };
 use super::Keyword;
 
@@ -155,12 +158,12 @@ impl<T: AsIri> fmt::Debug for Term<T> {
 	}
 }
 
-impl<T: AsIri> AsJson for Term<T> {
-	fn as_json(&self) -> JsonValue {
+impl<J: Json, T: AsIri> AsJson<J> for Term<T> {
+	fn as_json(&self) -> J {
 		match self {
-			Term::Ref(p) => p.as_str().into(),
-			Term::Keyword(kw) => kw.into_str().into(),
-			Term::Null => JsonValue::Null
+			Term::Ref(p) => p.as_str().as_json(),
+			Term::Keyword(kw) => kw.into_str().as_json(),
+			Term::Null => json::Value::Null.into()
 		}
 	}
 }

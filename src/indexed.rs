@@ -1,10 +1,14 @@
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::convert::{TryFrom, TryInto};
-use json::JsonValue;
+use cc_traits::MapInsert;
 use crate::{
 	syntax::Keyword,
-	util::AsJson
+	json::{
+		self,
+		Json,
+		AsJson
+	}
 };
 
 /// Indexed objects.
@@ -124,13 +128,13 @@ impl<T> AsMut<T> for Indexed<T> {
 	}
 }
 
-impl<T: AsJson> AsJson for Indexed<T> {
-	fn as_json(&self) -> JsonValue {
+impl<J: Json, T: AsJson<J>> AsJson<J> for Indexed<T> {
+	fn as_json(&self) -> J {
 		let mut json = self.value.as_json();
 
-		if let JsonValue::Object(ref mut obj) = &mut json {
+		if let json::ValueMut::Object(ref mut obj) = json.as_mut() {
 			if let Some(index) = &self.index {
-				obj.insert(Keyword::Index.into(), index.as_json())
+				obj.insert(Keyword::Index.into_str().into(), index.as_json());
 			}
 		}
 

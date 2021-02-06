@@ -1,7 +1,9 @@
 use std::fmt;
 use std::convert::TryFrom;
-use json::JsonValue;
-use crate::util;
+use crate::json::{
+	Json,
+	AsJson
+};
 
 /// Blank node identifier.
 ///
@@ -57,9 +59,9 @@ impl<'a> TryFrom<&'a str> for BlankId {
 	}
 }
 
-impl util::AsJson for BlankId {
+impl<J: Json> AsJson<J> for BlankId {
 	/// Returns a JSON string of the form `_:name`.
-	fn as_json(&self) -> JsonValue {
+	fn as_json(&self) -> J {
 		self.0.as_json()
 	}
 }

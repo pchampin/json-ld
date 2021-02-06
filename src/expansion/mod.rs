@@ -87,7 +87,7 @@ impl<'a, T: Ord, J> Ord for Entry<'a, T, J> {
 	}
 }
 
-fn filter_top_level_item<T: Id>(item: &Indexed<Object<T>>) -> bool {
+fn filter_top_level_item<J: Json, T: Id>(item: &Indexed<Object<J, T>>) -> bool {
 	// Remove dangling values.
 	match item.inner() {
 		Object::Value(_) => false,
@@ -95,7 +95,7 @@ fn filter_top_level_item<T: Id>(item: &Indexed<Object<T>>) -> bool {
 	}
 }
 
-pub fn expand<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &'a C, element: &'a J, base_url: Option<Iri>, loader: &'a mut L, options: Options) -> impl 'a + Send + Future<Output=Result<HashSet<Indexed<Object<T>>>, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
+pub fn expand<'a, J: Json, T: Send + Sync + Id, C: Send + Sync + ContextMut<T>, L: Send + Sync + Loader>(active_context: &'a C, element: &'a J, base_url: Option<Iri>, loader: &'a mut L, options: Options) -> impl 'a + Future<Output=Result<HashSet<Indexed<Object<J, T>>>, Error>> where C::LocalContext: Send + Sync + From<L::Output> + From<J>, L::Output: Into<J> {
 	let base_url = base_url.map(|url| IriBuf::from(url));
 
 	async move {

@@ -2,7 +2,6 @@ use std::fmt;
 use std::convert::TryFrom;
 use std::borrow::Borrow;
 use iref::{Iri, IriBuf, AsIri};
-use json::JsonValue;
 use crate::{
 	Id,
 	BlankId,
@@ -11,7 +10,10 @@ use crate::{
 		Term,
 		TermLike,
 	},
-	util
+	json::{
+		Json,
+		AsJson
+	}
 };
 
 /// Node reference.
@@ -136,8 +138,8 @@ impl<T: AsIri> From<BlankId> for Reference<T> {
 	}
 }
 
-impl<T: AsIri + util::AsJson> util::AsJson for Reference<T> {
-	fn as_json(&self) -> JsonValue {
+impl<J: Json, T: AsIri + AsJson<J>> AsJson<J> for Reference<T> {
+	fn as_json(&self) -> J {
 		match self {
 			Reference::Id(id) => id.as_json(),
 			Reference::Blank(b) => b.as_json()

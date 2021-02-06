@@ -1,5 +1,4 @@
 #![feature(arbitrary_self_types)]
-#![feature(generic_associated_types)]
 
 #[macro_use]
 extern crate log;

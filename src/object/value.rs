@@ -1,6 +1,7 @@
 use std::hash::{Hash, Hasher};
 use iref::IriBuf;
 use langtag::LanguageTag;
+use cc_traits::MapInsert;
 use crate::{
 	json::{
 		self,
@@ -14,8 +15,7 @@ use crate::{
 	syntax::{
 		Keyword,
 		Type
-	},
-	util
+	}
 };
 
 /// Literal value.
@@ -35,14 +35,12 @@ pub enum Literal<J: Json> {
 }
 
 impl<J: Json> PartialEq for Literal<J> {
-	fn eq(&self, other: &Literal) -> bool {
+	fn eq(&self, other: &Literal<J>) -> bool {
 		use Literal::*;
 		match (self, other) {
 			(Null, Null) => true,
 			(Boolean(a), Boolean(b)) => a == b,
-			(Number(a), Number(b)) => {
-				a.as_parts() == b.as_parts()
-			},
+			(Number(a), Number(b)) => a == b,
 			(String(a), String(b)) => a == b,
 			_ => false
 		}
@@ -56,7 +54,7 @@ impl<J: Json> Hash for Literal<J> {
 		match self {
 			Literal::Null => (),
 			Literal::Boolean(b) => b.hash(h),
-			Literal::Number(n) => util::hash_json_number(n, h),
+			Literal::Number(n) => n.hash(h),
 			Literal::String(s) => s.hash(h)
 		}
 	}
@@ -77,9 +75,9 @@ impl<J: Json> Literal<J> {
 		}
 	}
 
-	pub fn as_number(&self) -> Option<J::Number> {
+	pub fn as_number(&self) -> Option<&J::Number> {
 		match self {
-			Literal::Number(n) => Some(*n),
+			Literal::Number(n) => Some(n),
 			_ => None
 		}
 	}
@@ -116,7 +114,7 @@ impl<J: Json, T: Id> Value<J, T> {
 		}
 	}
 
-	pub fn as_number(&self) -> Option<J::Number> {
+	pub fn as_number(&self) -> Option<&J::Number> {
 		match self {
 			Value::Literal(lit, _) => lit.as_number(),
 			_ => None
@@ -169,50 +167,50 @@ impl<J: Json, T: Id> Hash for Value<J, T> {
 				ty.hash(h);
 			},
 			Value::LangString(str) => str.hash(h),
-			Value::Json(json) => util::hash_json(json, h)
+			Value::Json(json) => json.hash(h)
 		}
 	}
 }
 
-impl<J: Json, T: Id> AsJson for Value<J, T> {
-	fn as_json<K: Json>(&self) -> K {
-		let mut obj = K::Object::new();
+impl<J: Json, T: Id> AsJson<J> for Value<J, T> {
+	fn as_json(&self) -> J {
+		let mut obj = J::Object::default();
 
 		match self {
 			Value::Literal(lit, ty) => {
 				match lit {
 					Literal::Null => {
-						obj.insert(Keyword::Value.into(), json::Value::Null.into())
+						obj.insert(Keyword::Value.into_str().into(), json::Value::Null.into());
 					},
 					Literal::Boolean(b) => {
-						obj.insert(Keyword::Value.into(), b.as_json())
+						obj.insert(Keyword::Value.into_str().into(), b.as_json());
 					},
 					Literal::Number(n) => {
-						obj.insert(Keyword::Value.into(), json::Value::Number(n.clone()))
+						obj.insert(Keyword::Value.into_str().into(), json::Value::Number(n.clone()).into());
 					},
 					Literal::String(s) => {
-						obj.insert(Keyword::Value.into(), s.as_json())
+						obj.insert(Keyword::Value.into_str().into(), s.as_json());
 					}
 				}
 
 				if let Some(ty) = ty {
-					obj.insert(Keyword::Type.into(), ty.as_json())
+					obj.insert(Keyword::Type.into_str().into(), ty.as_json());
 				}
 			},
 			Value::LangString(str) => {
-				obj.insert(Keyword::Value.into(), str.as_str().into());
+				obj.insert(Keyword::Value.into_str().into(), str.as_str().as_json());
 
 				if let Some(language) = str.language() {
-					obj.insert(Keyword::Language.into(), language.as_json());
+					obj.insert(Keyword::Language.into_str().into(), language.as_json());
 				}
 
 				if let Some(direction) = str.direction() {
-					obj.insert(Keyword::Direction.into(), direction.as_json());
+					obj.insert(Keyword::Direction.into_str().into(), direction.as_json());
 				}
 			},
 			Value::Json(json) => {
-				obj.insert(Keyword::Value.into(), json.clone());
-				obj.insert(Keyword::Type.into(), Keyword::Json.as_json())
+				obj.insert(Keyword::Value.into_str().into(), json.clone());
+				obj.insert(Keyword::Type.into_str().into(), Keyword::Json.into_str().as_json());
 			}
 		}
 

@@ -1,4 +1,4 @@
-use json::JsonValue;
+use cc_traits::MapInsert;
 use crate::{
 	Id,
 	ContextMut,
@@ -16,7 +16,11 @@ use crate::{
 		ContainerType,
 		Type
 	},
-	util::AsJson
+	json::{
+		self,
+		Json,
+		AsJson
+	}
 };
 use super::{
 	Options,
@@ -24,7 +28,7 @@ use super::{
 };
 
 /// Compact the given indexed value.
-pub async fn compact_indexed_value_with<T: Sync + Send + Id, C: ContextMut<T>, L: Loader>(value: &Value<T>, index: Option<&str>, active_context: Inversible<T, &C>, active_property: Option<&str>, loader: &mut L, options: Options) -> Result<JsonValue, Error> where C: Sync + Send, C::LocalContext: Send + Sync + From<L::Output>, L: Sync + Send {
+pub async fn compact_indexed_value_with<J: Json, T: Id, C: ContextMut<T>, L: Loader>(value: &Value<J, T>, index: Option<&str>, active_context: Inversible<T, &C>, active_property: Option<&str>, loader: &mut L, options: Options) -> Result<J, Error> where C::LocalContext: From<L::Output> {
 	// If the term definition for active property in active context has a local context:
 	let mut active_context = active_context.into_borrowed();
 	if let Some(active_property) = active_property {
@@ -43,7 +47,7 @@ pub async fn compact_indexed_value_with<T: Sync + Send + Id, C: ContextMut<T>, L
 	// Here starts the Value Compaction Algorithm.
 
 	// Initialize result to a copy of value.
-	let mut result = json::object::Object::new();
+	let mut result = J::Object::default();
 
 	// If the active context has a null inverse context,
 	// set inverse context in active context to the result of calling the
@@ -100,39 +104,39 @@ pub async fn compact_indexed_value_with<T: Sync + Send + Id, C: ContextMut<T>, L
 			use crate::object::value::Literal;
 			if ty.as_ref().map(|t| Type::Ref(t)) == type_mapping && remove_index {
 				match lit {
-					Literal::Null => return Ok(JsonValue::Null),
+					Literal::Null => return Ok(json::Value::Null.into()),
 					Literal::Boolean(b) => return Ok(b.as_json()),
-					Literal::Number(n) => return Ok(JsonValue::Number(n.clone())),
+					Literal::Number(n) => return Ok(json::Value::Number(n.clone()).into()),
 					Literal::String(s) => {
 						if ty.is_some() || (language.is_none() && direction.is_none()) {
 							return Ok(s.as_json())
 						} else {
-							let compact_key  = compact_iri(active_context.as_ref(), Keyword::Value, true, false, options)?;
-							result.insert(compact_key.as_str().unwrap(), s.as_json())
+							let compact_key: J = compact_iri(active_context.as_ref(), Keyword::Value, true, false, options)?;
+							result.insert(compact_key.as_str().unwrap().into(), s.as_json());
 						}
 					}
 				}
 			} else {
-				let compact_key = compact_iri(active_context.as_ref(), Keyword::Value, true, false, options)?;
+				let compact_key: J = compact_iri(active_context.as_ref(), Keyword::Value, true, false, options)?;
 				match lit {
 					Literal::Null => {
-						result.insert(compact_key.as_str().unwrap(), JsonValue::Null)
+						result.insert(compact_key.as_str().unwrap().into(), json::Value::Null.into());
 					},
 					Literal::Boolean(b) => {
-						result.insert(compact_key.as_str().unwrap(), b.as_json())
+						result.insert(compact_key.as_str().unwrap().into(), b.as_json());
 					},
 					Literal::Number(n) => {
-						result.insert(compact_key.as_str().unwrap(), JsonValue::Number(n.clone()))
+						result.insert(compact_key.as_str().unwrap().into(), json::Value::Number(n.clone()).into());
 					},
 					Literal::String(s) => {
-						result.insert(compact_key.as_str().unwrap(), s.as_json())
+						result.insert(compact_key.as_str().unwrap().into(), s.as_json());
 					}
 				}
 
 				if let Some(ty) = ty {
-					let compact_key = compact_iri(active_context.as_ref(), Keyword::Type, true, false, options)?;
+					let compact_key: J = compact_iri(active_context.as_ref(), Keyword::Type, true, false, options)?;
 					let compact_ty = compact_iri(active_context.as_ref(), ty, true, false, options)?;
-					result.insert(compact_key.as_str().unwrap(), compact_ty)
+					result.insert(compact_key.as_str().unwrap().into(), compact_ty);
 				}
 			}
 		},
@@ -145,17 +149,17 @@ pub async fn compact_indexed_value_with<T: Sync + Send + Id, C: ContextMut<T>, L
 			&& (ls_direction.is_none() || direction == ls_direction) { // || (ls.direction().is_none() && direction.is_none())) {
 				return Ok(ls.as_str().as_json())
 			} else {
-				let compact_key  = compact_iri(active_context.as_ref(), Keyword::Value, true, false, options)?;
-				result.insert(compact_key.as_str().unwrap(), ls.as_str().into());
+				let compact_key: J = compact_iri(active_context.as_ref(), Keyword::Value, true, false, options)?;
+				result.insert(compact_key.as_str().unwrap().into(), ls.as_str().as_json());
 
 				if let Some(language) = ls.language() {
-					let compact_key  = compact_iri(active_context.as_ref(), Keyword::Language, true, false, options)?;
-					result.insert(compact_key.as_str().unwrap(), language.as_json());
+					let compact_key: J = compact_iri(active_context.as_ref(), Keyword::Language, true, false, options)?;
+					result.insert(compact_key.as_str().unwrap().into(), language.as_json());
 				}
 
 				if let Some(direction) = ls.direction() {
-					let compact_key  = compact_iri(active_context.as_ref(), Keyword::Direction, true, false, options)?;
-					result.insert(compact_key.as_str().unwrap(), direction.as_json());
+					let compact_key: J = compact_iri(active_context.as_ref(), Keyword::Direction, true, false, options)?;
+					result.insert(compact_key.as_str().unwrap().into(), direction.as_json());
 				}
 			}
 		},
@@ -163,22 +167,22 @@ pub async fn compact_indexed_value_with<T: Sync + Send + Id, C: ContextMut<T>, L
 			if type_mapping == Some(Type::Json) && remove_index {
 				return Ok(value.clone())
 			} else {
-				let compact_key  = compact_iri(active_context.as_ref(), Keyword::Value, true, false, options)?;
-				result.insert(compact_key.as_str().unwrap(), value.clone());
+				let compact_key: J = compact_iri(active_context.as_ref(), Keyword::Value, true, false, options)?;
+				result.insert(compact_key.as_str().unwrap().into(), value.clone());
 
-				let compact_key = compact_iri(active_context.as_ref(), Keyword::Type, true, false, options)?;
+				let compact_key: J = compact_iri(active_context.as_ref(), Keyword::Type, true, false, options)?;
 				let compact_ty = compact_iri(active_context.as_ref(), Keyword::Json, true, false, options)?;
-				result.insert(compact_key.as_str().unwrap(), compact_ty);
+				result.insert(compact_key.as_str().unwrap().into(), compact_ty);
 			}
 		}
 	}
 
 	if !remove_index {
 		if let Some(index) = index {
-			let compact_key = compact_iri(active_context.as_ref(), Keyword::Index, true, false, options)?;
-			result.insert(compact_key.as_str().unwrap(), index.as_json())
+			let compact_key: J = compact_iri(active_context.as_ref(), Keyword::Index, true, false, options)?;
+			result.insert(compact_key.as_str().unwrap().into(), index.as_json());
 		}
 	}
 
-	Ok(JsonValue::Object(result))
+	Ok(json::Value::Object(result).into())
 }

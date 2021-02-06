@@ -1,10 +1,12 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
-use json::JsonValue;
 use iref::Iri;
 use crate::{
 	syntax::TermLike,
-	util
+	json::{
+		Json,
+		AsJson
+	}
 };
 
 /// Wrapper for string data that may be malformed.
@@ -89,8 +91,8 @@ impl<T: fmt::Debug> fmt::Debug for Lenient<T> {
 	}
 }
 
-impl<T: util::AsJson> util::AsJson for Lenient<T> {
-	fn as_json(&self) -> JsonValue {
+impl<J: Json, T: AsJson<J>> AsJson<J> for Lenient<T> {
+	fn as_json(&self) -> J {
 		match self {
 			Lenient::Ok(t) => t.as_json(),
 			Lenient::Unknown(u) => u.as_json()

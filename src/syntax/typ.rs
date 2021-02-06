@@ -1,11 +1,13 @@
 use std::fmt;
 use std::convert::TryFrom;
 use iref::Iri;
-use json::JsonValue;
 use crate::{
 	Id,
 	Reference,
-	util
+	json::{
+		Json,
+		AsJson
+	}
 };
 use super::{
 	Keyword,
@@ -121,13 +123,13 @@ impl<T: Id> TryFrom<Term<T>> for Type<T> {
 	}
 }
 
-impl<T: util::AsJson> util::AsJson for Type<T> {
-	fn as_json(&self) -> JsonValue {
+impl<J: Json, T: AsJson<J>> AsJson<J> for Type<T> {
+	fn as_json(&self) -> J {
 		match self {
-			Type::Id => "@id".into(),
-			Type::Json => "@json".into(),
-			Type::None => "@none".into(),
-			Type::Vocab => "@vocab".into(),
+			Type::Id => "@id".as_json(),
+			Type::Json => "@json".as_json(),
+			Type::None => "@none".as_json(),
+			Type::Vocab => "@vocab".as_json(),
 			Type::Ref(id) => id.as_json()
 		}
 	}
