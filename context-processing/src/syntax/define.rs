@@ -1,6 +1,6 @@
 use super::{expand_iri_simple, expand_iri_with, Merged};
 use crate::{Error, Options, ProcessingStack, Warning, WarningHandler};
-use futures::future::{BoxFuture, FutureExt};
+use json_ld_core::{BoxFuture, FutureExt};
 use iref::{Iri, IriRef};
 use json_ld_core::{
 	context::{NormalTermDefinition, TypeTermDefinition},

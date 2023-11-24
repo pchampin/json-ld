@@ -3,6 +3,7 @@ use crate::{Error, Options, ProcessingStack, Warning, WarningHandler};
 use contextual::WithContext;
 use iref::{Iri, IriRef};
 use json_ld_core::{Context, ContextLoader, Id, Term};
+use json_ld_core::{BoxFuture, FutureExt};
 use json_ld_syntax::{self as syntax, context::definition::Key, ExpandableRef, Nullable};
 use locspan::Meta;
 use rdf_types::{BlankId, VocabularyMut};
@@ -38,7 +39,11 @@ pub fn expand_iri_with<
 	loader: &'a mut L,
 	options: Options,
 	mut warnings: W,
-) -> impl 'a + Send + Future<Output = Result<(Term<T, B>, W), Error<L::ContextError>>> {
+) -> BoxFuture<'a, Result<(Term<T, B>, W), Error<L::ContextError>>>
+where
+	C: ProcessMeta<T, B, M>,
+	L::Context: Into<C>,
+{
 	async move {
 		match value {
 			Nullable::Null => Ok((Term::Null, warnings)),
@@ -193,7 +198,7 @@ pub fn expand_iri_with<
 				))
 			}
 		}
-	}
+	}.boxed()
 }
 
 fn invalid_iri<T, B, N, M, H: json_ld_core::warning::Handler<N, Meta<Warning, M>>>(

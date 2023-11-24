@@ -1,6 +1,6 @@
 use super::{Loader, RemoteDocument};
 use contextual::{DisplayWithContext, WithContext};
-use futures::future::{BoxFuture, FutureExt};
+use crate::{BoxFuture, FutureExt};
 use rdf_types::{vocabulary::IriIndex, IriVocabulary};
 use std::fmt;
 use std::marker::PhantomData;

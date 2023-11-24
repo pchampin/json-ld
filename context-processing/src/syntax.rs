@@ -2,7 +2,7 @@ use crate::{
 	ContextLoader, Error, MetaError, Options, ProcessMeta, Processed, ProcessingResult,
 	ProcessingStack, WarningHandler,
 };
-use futures::future::{BoxFuture, FutureExt};
+use json_ld_core::{BoxFuture, FutureExt};
 use iref::IriRef;
 use json_ld_core::{Context, ProcessingMode, Term};
 use json_ld_syntax::{self as syntax, Entry, Nullable};

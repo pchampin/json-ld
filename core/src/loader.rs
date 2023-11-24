@@ -1,4 +1,4 @@
-use futures::future::{BoxFuture, FutureExt};
+use crate::{BoxFuture, FutureExt};
 use hashbrown::HashSet;
 use iref::{Iri, IriBuf};
 use locspan::{MapLocErr, Meta};

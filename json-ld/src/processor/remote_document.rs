@@ -9,7 +9,7 @@ use crate::{
 };
 use crate::{syntax, IntoDocumentResult};
 use contextual::WithContext;
-use futures::future::{BoxFuture, FutureExt};
+use json_ld_core::{BoxFuture, FutureExt};
 use json_ld_core::{Document, RemoteContextReference};
 use locspan::BorrowStripped;
 use rdf_types::VocabularyMut;
