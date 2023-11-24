@@ -1,5 +1,5 @@
 //! JSON-LD context processing types and algorithms.
-use futures::future::{BoxFuture, FutureExt};
+use json_ld_core::{BoxFuture, FutureExt};
 pub use json_ld_core::{warning, Context, ContextLoader, ProcessingMode};
 use json_ld_syntax::ErrorCode;
 use locspan::Meta;

@@ -3,7 +3,7 @@ use crate::{
 	Expanded, ExpandedEntry, LiteralValue, Loader, Options, Policy, Warning, WarningHandler,
 };
 use contextual::WithContext;
-use futures::future::{BoxFuture, FutureExt};
+use json_ld_core::{BoxFuture, FutureExt};
 use json_ld_context_processing::{
 	ContextLoader, Options as ProcessingOptions, Process, ProcessMeta,
 };

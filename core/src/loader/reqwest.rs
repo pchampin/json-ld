@@ -3,7 +3,7 @@ use crate::Profile;
 
 use super::{Loader, RemoteDocument};
 use bytes::Bytes;
-use futures::future::{BoxFuture, FutureExt};
+use crate::{BoxFuture, FutureExt};
 use hashbrown::HashSet;
 use iref::Iri;
 use locspan::{Meta, Span};

@@ -9,7 +9,7 @@ use crate::{
 	id::Generator, Context, ContextLoader, Flatten, Loader, RemoteDocument, RemoteDocumentReference,
 };
 use contextual::WithContext;
-use futures::future::{BoxFuture, FutureExt};
+use json_ld_core::{BoxFuture, FutureExt};
 use locspan::BorrowStripped;
 use rdf_types::VocabularyMut;
 use std::hash::Hash;
